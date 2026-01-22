@@ -1,11 +1,13 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
+using System.IO;
 using System.IO.Ports;
 using System.Windows;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HVG2020B.Core;
 using HVG2020B.Driver;
-using ScottPlot;
 
 namespace HVG2020B.Viewer.ViewModels;
 
@@ -16,15 +18,38 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private readonly List<double> _timeData = new();
     private readonly List<double> _pressureData = new();
     private DateTime _startTime;
+    private DateTime _recordingStartTime;
     private int _sampleCount;
+    private int _recordedSampleCount;
     private bool _disposed;
 
+    // CSV logging
+    private StreamWriter? _csvWriter;
+    private string? _currentLogPath;
+
+    // Blinking indicator timer
+    private readonly DispatcherTimer _blinkTimer;
+
     // Ring buffer for chart (last N seconds)
-    private const int MaxDataPoints = 600; // 10 minutes at 1 Hz, or 1 minute at 10 Hz
+    private const int MaxDataPoints = 600;
 
     public MainViewModel()
     {
         _client = new HVG2020BClient();
+
+        // Setup blink timer for recording indicator
+        _blinkTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(500)
+        };
+        _blinkTimer.Tick += (_, _) =>
+        {
+            if (CurrentState == ViewerState.Recording)
+            {
+                IndicatorVisible = !IndicatorVisible;
+            }
+        };
+
         RefreshPorts();
     }
 
@@ -49,10 +74,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private int _intervalMs = 500;
 
     [ObservableProperty]
-    private bool _isConnected;
-
-    [ObservableProperty]
-    private bool _isRunning;
+    [NotifyCanExecuteChangedFor(nameof(ConnectCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DisconnectCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StartRecordingCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StopRecordingCommand))]
+    private ViewerState _currentState = ViewerState.Disconnected;
 
     [ObservableProperty]
     private string _currentPressure = "---";
@@ -67,7 +93,28 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private int _sampleCountDisplay;
 
     [ObservableProperty]
+    private int _recordedSampleCountDisplay;
+
+    [ObservableProperty]
     private string _elapsedTime = "00:00:00";
+
+    [ObservableProperty]
+    private string _recordingTime = "00:00:00";
+
+    [ObservableProperty]
+    private bool _indicatorVisible = true;
+
+    [ObservableProperty]
+    private string? _logFilePath;
+
+    #endregion
+
+    #region Computed Properties
+
+    public bool IsDisconnected => CurrentState == ViewerState.Disconnected;
+    public bool IsLive => CurrentState == ViewerState.Live;
+    public bool IsRecording => CurrentState == ViewerState.Recording;
+    public bool IsConnected => CurrentState != ViewerState.Disconnected;
 
     #endregion
 
@@ -77,6 +124,29 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public List<double> PressureData => _pressureData;
 
     public event Action? DataUpdated;
+
+    #endregion
+
+    #region State Change Handler
+
+    partial void OnCurrentStateChanged(ViewerState value)
+    {
+        OnPropertyChanged(nameof(IsDisconnected));
+        OnPropertyChanged(nameof(IsLive));
+        OnPropertyChanged(nameof(IsRecording));
+        OnPropertyChanged(nameof(IsConnected));
+
+        // Handle blink timer
+        if (value == ViewerState.Recording)
+        {
+            _blinkTimer.Start();
+        }
+        else
+        {
+            _blinkTimer.Stop();
+            IndicatorVisible = true;
+        }
+    }
 
     #endregion
 
@@ -100,8 +170,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         StatusMessage = $"Found {ports.Length} COM port(s)";
     }
 
-    [RelayCommand(CanExecute = nameof(CanStart))]
-    private async Task StartAsync()
+    /// <summary>
+    /// Connect to device and enter Live mode.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanConnect))]
+    private async Task ConnectAsync()
     {
         if (string.IsNullOrEmpty(SelectedPort))
         {
@@ -119,8 +192,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
             await _client.ConnectAsync(SelectedPort, settings);
 
-            IsConnected = true;
-            IsRunning = true;
+            // Transition to Live state
+            CurrentState = ViewerState.Live;
             _startTime = DateTime.Now;
             _sampleCount = 0;
 
@@ -129,33 +202,108 @@ public partial class MainViewModel : ObservableObject, IDisposable
             _pressureData.Clear();
             DataUpdated?.Invoke();
 
-            StatusMessage = $"Connected to {SelectedPort}";
+            StatusMessage = $"Live - Connected to {SelectedPort}";
 
+            // Start acquisition loop (chart only, no file logging)
             _cts = new CancellationTokenSource();
             _ = RunAcquisitionLoopAsync(_cts.Token);
         }
         catch (Exception ex)
         {
             StatusMessage = $"Connection failed: {ex.Message}";
-            IsConnected = false;
-            IsRunning = false;
+            CurrentState = ViewerState.Disconnected;
         }
     }
 
-    private bool CanStart() => !IsRunning && SelectedPort != null;
+    private bool CanConnect() => CurrentState == ViewerState.Disconnected && SelectedPort != null;
 
-    [RelayCommand(CanExecute = nameof(CanStop))]
-    private void Stop()
+    /// <summary>
+    /// Disconnect from device.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanDisconnect))]
+    private void Disconnect()
     {
+        // If recording, stop first
+        if (CurrentState == ViewerState.Recording)
+        {
+            StopRecording();
+        }
+
         _cts?.Cancel();
         _client.Disconnect();
 
-        IsRunning = false;
-        IsConnected = false;
-        StatusMessage = "Stopped";
+        CurrentState = ViewerState.Disconnected;
+        CurrentPressure = "---";
+        StatusMessage = "Disconnected";
     }
 
-    private bool CanStop() => IsRunning;
+    private bool CanDisconnect() => CurrentState != ViewerState.Disconnected;
+
+    /// <summary>
+    /// Start recording to CSV file.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanStartRecording))]
+    private void StartRecording()
+    {
+        try
+        {
+            // Create log directory if needed
+            var logDir = Path.Combine(Directory.GetCurrentDirectory(), "logs");
+            if (!Directory.Exists(logDir))
+            {
+                Directory.CreateDirectory(logDir);
+            }
+
+            // Create new log file
+            var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            _currentLogPath = Path.Combine(logDir, $"hvg_2020b_{timestamp}.csv");
+            _csvWriter = new StreamWriter(_currentLogPath, false, System.Text.Encoding.UTF8);
+            _csvWriter.WriteLine("timestamp_iso,pressure_torr");
+
+            LogFilePath = _currentLogPath;
+            _recordingStartTime = DateTime.Now;
+            _recordedSampleCount = 0;
+            RecordedSampleCountDisplay = 0;
+            RecordingTime = "00:00:00";
+
+            CurrentState = ViewerState.Recording;
+            StatusMessage = $"Recording to {Path.GetFileName(_currentLogPath)}";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Failed to start recording: {ex.Message}";
+        }
+    }
+
+    private bool CanStartRecording() => CurrentState == ViewerState.Live;
+
+    /// <summary>
+    /// Stop recording and close CSV file.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanStopRecording))]
+    private void StopRecording()
+    {
+        try
+        {
+            _csvWriter?.Flush();
+            _csvWriter?.Close();
+            _csvWriter?.Dispose();
+            _csvWriter = null;
+
+            var savedPath = _currentLogPath;
+            _currentLogPath = null;
+
+            CurrentState = ViewerState.Live;
+            StatusMessage = $"Recording stopped - Saved {_recordedSampleCount} samples to {Path.GetFileName(savedPath)}";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Error stopping recording: {ex.Message}";
+            CurrentState = ViewerState.Live;
+        }
+    }
+
+    private bool CanStopRecording() => CurrentState == ViewerState.Recording;
 
     [RelayCommand]
     private void ClearChart()
@@ -222,7 +370,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         CurrentPressure = reading.PressureTorr.ToString("E3");
         CurrentUnit = reading.RawUnit ?? "Torr";
 
-        // Update elapsed time
+        // Update elapsed time (since connection)
         var elapsed = DateTime.Now - _startTime;
         ElapsedTime = elapsed.ToString(@"hh\:mm\:ss");
 
@@ -241,7 +389,39 @@ public partial class MainViewModel : ObservableObject, IDisposable
         // Notify chart to update
         DataUpdated?.Invoke();
 
-        StatusMessage = $"Running - {_sampleCount} samples";
+        // If recording, write to CSV
+        if (CurrentState == ViewerState.Recording && _csvWriter != null)
+        {
+            try
+            {
+                var timestampIso = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+                var pressureStr = reading.PressureTorr.ToString("G", CultureInfo.InvariantCulture);
+                _csvWriter.WriteLine($"{timestampIso},{pressureStr}");
+
+                _recordedSampleCount++;
+                RecordedSampleCountDisplay = _recordedSampleCount;
+
+                // Update recording time
+                var recordingElapsed = DateTime.Now - _recordingStartTime;
+                RecordingTime = recordingElapsed.ToString(@"hh\:mm\:ss");
+
+                // Flush periodically
+                if (_recordedSampleCount % 10 == 0)
+                {
+                    _csvWriter.Flush();
+                }
+
+                StatusMessage = $"Recording - {_recordedSampleCount} samples";
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = $"Write error: {ex.Message}";
+            }
+        }
+        else if (CurrentState == ViewerState.Live)
+        {
+            StatusMessage = $"Live - {_sampleCount} samples";
+        }
     }
 
     #endregion
@@ -251,8 +431,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (_disposed) return;
         _disposed = true;
 
+        _blinkTimer.Stop();
         _cts?.Cancel();
         _cts?.Dispose();
+
+        _csvWriter?.Flush();
+        _csvWriter?.Dispose();
+
         _client.Dispose();
     }
 }

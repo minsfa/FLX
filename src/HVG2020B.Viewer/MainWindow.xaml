@@ -7,8 +7,8 @@
         xmlns:vm="clr-namespace:HVG2020B.Viewer.ViewModels"
         mc:Ignorable="d"
         Title="HVG-2020B Viewer"
-        Height="700" Width="1000"
-        MinHeight="500" MinWidth="800"
+        Height="700" Width="1100"
+        MinHeight="500" MinWidth="900"
         Background="{StaticResource BackgroundBrush}"
         WindowStartupLocation="CenterScreen">
 
@@ -35,61 +35,104 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
                 <!-- Port Selection -->
-                <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="0,0,24,0">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="0,0,16,0">
                     <TextBlock Text="Port:" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
                     <ComboBox ItemsSource="{Binding AvailablePorts}"
                               SelectedItem="{Binding SelectedPort}"
-                              Width="100"
-                              IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBoolConverter}}"/>
+                              Width="90"
+                              IsEnabled="{Binding IsDisconnected}"/>
                     <Button Content="⟳" Margin="4,0,0,0" Padding="8,4"
                             Command="{Binding RefreshPortsCommand}"
-                            IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBoolConverter}}"
+                            IsEnabled="{Binding IsDisconnected}"
                             ToolTip="Refresh COM ports"/>
                 </StackPanel>
 
                 <!-- Mode Selection -->
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,0,24,0">
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,0,16,0">
                     <TextBlock Text="Mode:" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
                     <ComboBox ItemsSource="{Binding ConnectionModes}"
                               SelectedItem="{Binding SelectedMode}"
-                              Width="80"
-                              IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBoolConverter}}"/>
+                              Width="70"
+                              IsEnabled="{Binding IsDisconnected}"/>
                 </StackPanel>
 
                 <!-- Interval -->
-                <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="0,0,24,0">
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="0,0,16,0">
                     <TextBlock Text="Interval:" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
                     <TextBox Text="{Binding IntervalMs, UpdateSourceTrigger=PropertyChanged}"
-                             Width="60"
-                             IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBoolConverter}}"/>
+                             Width="50"
+                             IsEnabled="{Binding IsDisconnected}"/>
                     <TextBlock Text="ms" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="4,0,0,0"/>
                 </StackPanel>
 
                 <!-- Baud Rate (only for RS232) -->
-                <StackPanel Grid.Column="3" Orientation="Horizontal" Margin="0,0,24,0"
+                <StackPanel Grid.Column="3" Orientation="Horizontal" Margin="0,0,16,0"
                             Visibility="{Binding SelectedMode, Converter={StaticResource Rs232VisibilityConverter}}">
                     <TextBlock Text="Baud:" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
                     <TextBox Text="{Binding BaudRate, UpdateSourceTrigger=PropertyChanged}"
                              Width="60"
-                             IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBoolConverter}}"/>
+                             IsEnabled="{Binding IsDisconnected}"/>
                 </StackPanel>
 
                 <!-- Spacer -->
                 <Border Grid.Column="4"/>
 
-                <!-- Start/Stop Buttons -->
-                <Button Grid.Column="5" Content="▶ Start"
+                <!-- Connect Button -->
+                <Button Grid.Column="5" Content="Connect"
                         Style="{StaticResource PrimaryButton}"
-                        Command="{Binding StartCommand}"
-                        Margin="0,0,8,0" Width="100"/>
+                        Command="{Binding ConnectCommand}"
+                        Margin="0,0,8,0" Width="90"/>
 
-                <Button Grid.Column="6" Content="■ Stop"
+                <!-- Start Recording Button -->
+                <Button Grid.Column="6" Content="● REC"
+                        Margin="0,0,8,0" Width="80"
+                        Command="{Binding StartRecordingCommand}">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource PrimaryButton}">
+                            <Setter Property="Background" Value="#E53935"/>
+                            <Style.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="#C62828"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Background" Value="#555555"/>
+                                    <Setter Property="Foreground" Value="#888888"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+
+                <!-- Stop Recording Button -->
+                <Button Grid.Column="7" Content="■ Stop"
                         Style="{StaticResource StopButton}"
-                        Command="{Binding StopCommand}"
-                        Width="100"/>
+                        Command="{Binding StopRecordingCommand}"
+                        Margin="0,0,8,0" Width="80"/>
+
+                <!-- Disconnect Button -->
+                <Button Grid.Column="8" Content="Disconnect"
+                        Width="90"
+                        Command="{Binding DisconnectCommand}">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource PrimaryButton}">
+                            <Setter Property="Background" Value="#757575"/>
+                            <Style.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="#616161"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Background" Value="#555555"/>
+                                    <Setter Property="Foreground" Value="#888888"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
             </Grid>
         </Border>
 
@@ -98,6 +141,8 @@
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
@@ -114,22 +159,56 @@
                                VerticalAlignment="Bottom" Margin="8,0,0,8"/>
                 </StackPanel>
 
-                <!-- Sample Count -->
-                <StackPanel Grid.Column="1" Margin="32,0">
-                    <TextBlock Text="Samples" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"/>
+                <!-- Live Sample Count -->
+                <StackPanel Grid.Column="1" Margin="24,0">
+                    <TextBlock Text="Live Samples" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"/>
                     <TextBlock Text="{Binding SampleCountDisplay}"
                                Foreground="{StaticResource TextBrush}" FontSize="20" FontWeight="SemiBold"/>
                 </StackPanel>
 
                 <!-- Elapsed Time -->
-                <StackPanel Grid.Column="2" Margin="32,0">
+                <StackPanel Grid.Column="2" Margin="24,0">
                     <TextBlock Text="Elapsed" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"/>
                     <TextBlock Text="{Binding ElapsedTime}"
                                Foreground="{StaticResource TextBrush}" FontSize="20" FontWeight="SemiBold"/>
                 </StackPanel>
 
+                <!-- Recording Info (visible when recording) -->
+                <StackPanel Grid.Column="3" Margin="24,0">
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsRecording}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+                    <TextBlock Text="Recorded" Foreground="#E53935" FontSize="12" FontWeight="SemiBold"/>
+                    <TextBlock Text="{Binding RecordedSampleCountDisplay}"
+                               Foreground="#E53935" FontSize="20" FontWeight="SemiBold"/>
+                </StackPanel>
+
+                <!-- Recording Time (visible when recording) -->
+                <StackPanel Grid.Column="4" Margin="24,0">
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsRecording}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+                    <TextBlock Text="Rec Time" Foreground="#E53935" FontSize="12" FontWeight="SemiBold"/>
+                    <TextBlock Text="{Binding RecordingTime}"
+                               Foreground="#E53935" FontSize="20" FontWeight="SemiBold"/>
+                </StackPanel>
+
                 <!-- Clear Button -->
-                <Button Grid.Column="3" Content="Clear"
+                <Button Grid.Column="5" Content="Clear"
                         Command="{Binding ClearChartCommand}"
                         Padding="16,8" Margin="16,0,0,0"/>
             </Grid>
@@ -145,25 +224,63 @@
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- Connection Status Indicator -->
-                <Ellipse Grid.Column="0" Width="12" Height="12" Margin="0,0,8,0">
+                <!-- State Indicator -->
+                <Border Grid.Column="0" CornerRadius="4" Padding="8,4" Margin="0,0,12,0">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Background" Value="#666666"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding CurrentState}" Value="Live">
+                                    <Setter Property="Background" Value="#4CAF50"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding CurrentState}" Value="Recording">
+                                    <Setter Property="Background" Value="#E53935"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <TextBlock Foreground="White" FontWeight="SemiBold" FontSize="11">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Text" Value="DISCONNECTED"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding CurrentState}" Value="Live">
+                                        <Setter Property="Text" Value="LIVE"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding CurrentState}" Value="Recording">
+                                        <Setter Property="Text" Value="● REC"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </Border>
+
+                <!-- Blinking Recording Indicator -->
+                <Ellipse Grid.Column="1" Width="12" Height="12" Margin="0,0,8,0">
                     <Ellipse.Style>
                         <Style TargetType="Ellipse">
-                            <Setter Property="Fill" Value="#666666"/>
+                            <Setter Property="Fill" Value="Transparent"/>
                             <Style.Triggers>
-                                <DataTrigger Binding="{Binding IsRunning}" Value="True">
-                                    <Setter Property="Fill" Value="#4CAF50"/>
-                                </DataTrigger>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding IsRecording}" Value="True"/>
+                                        <Condition Binding="{Binding IndicatorVisible}" Value="True"/>
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter Property="Fill" Value="#E53935"/>
+                                </MultiDataTrigger>
                             </Style.Triggers>
                         </Style>
                     </Ellipse.Style>
                 </Ellipse>
 
-                <TextBlock Grid.Column="1" Text="{Binding StatusMessage}"
-                           Foreground="{StaticResource TextSecondaryBrush}"/>
+                <TextBlock Grid.Column="2" Text="{Binding StatusMessage}"
+                           Foreground="{StaticResource TextSecondaryBrush}"
+                           VerticalAlignment="Center"/>
             </Grid>
         </Border>
     </Grid>
