@@ -14,7 +14,6 @@ namespace HVG2020B.Viewer.ViewModels;
 public partial class MainViewModel : ObservableObject, IDisposable
 {
     private readonly HVG2020BClient _client;
-    private CancellationTokenSource? _cts;
     private readonly List<double> _timeData = new();
     private readonly List<double> _pressureData = new();
     private DateTime _startTime;
@@ -27,15 +26,33 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private StreamWriter? _csvWriter;
     private string? _currentLogPath;
 
+    // Live timer: fixed 100ms interval for smooth chart
+    private readonly DispatcherTimer _liveTimer;
+    private const int LiveIntervalMs = 100;
+
+    // Logging tick counter
+    private int _logTickCounter;
+    private int _logTickThreshold = 5; // 500ms / 100ms = 5 ticks
+
     // Blinking indicator timer
     private readonly DispatcherTimer _blinkTimer;
 
-    // Ring buffer for chart (last N seconds)
+    // Ring buffer for chart (last N seconds at 10Hz = 600 points = 60 seconds)
     private const int MaxDataPoints = 600;
+
+    // Latest reading cache
+    private GaugeReading? _latestReading;
 
     public MainViewModel()
     {
         _client = new HVG2020BClient();
+
+        // Setup live timer (fixed 100ms)
+        _liveTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(LiveIntervalMs)
+        };
+        _liveTimer.Tick += OnLiveTimerTick;
 
         // Setup blink timer for recording indicator
         _blinkTimer = new DispatcherTimer
@@ -70,8 +87,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private int _baudRate = 19200;
 
+    // Logging interval options (in milliseconds)
     [ObservableProperty]
-    private int _intervalMs = 500;
+    private ObservableCollection<int> _loggingIntervalOptions = new() { 500, 1000, 2000, 5000, 10000 };
+
+    [ObservableProperty]
+    private int _selectedLoggingInterval = 500;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ConnectCommand))]
@@ -116,6 +137,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public bool IsRecording => CurrentState == ViewerState.Recording;
     public bool IsConnected => CurrentState != ViewerState.Disconnected;
 
+    /// <summary>
+    /// Logging interval can only be changed in Live mode (not Recording).
+    /// </summary>
+    public bool CanChangeLoggingInterval => CurrentState == ViewerState.Live;
+
     #endregion
 
     #region Chart Data
@@ -135,6 +161,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsLive));
         OnPropertyChanged(nameof(IsRecording));
         OnPropertyChanged(nameof(IsConnected));
+        OnPropertyChanged(nameof(CanChangeLoggingInterval));
 
         // Handle blink timer
         if (value == ViewerState.Recording)
@@ -146,6 +173,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
             _blinkTimer.Stop();
             IndicatorVisible = true;
         }
+    }
+
+    partial void OnSelectedLoggingIntervalChanged(int value)
+    {
+        // Recalculate tick threshold when logging interval changes
+        _logTickThreshold = value / LiveIntervalMs;
     }
 
     #endregion
@@ -200,13 +233,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
             // Clear previous data
             _timeData.Clear();
             _pressureData.Clear();
+            _latestReading = null;
             DataUpdated?.Invoke();
+
+            // Calculate initial tick threshold
+            _logTickThreshold = SelectedLoggingInterval / LiveIntervalMs;
 
             StatusMessage = $"Live - Connected to {SelectedPort}";
 
-            // Start acquisition loop (chart only, no file logging)
-            _cts = new CancellationTokenSource();
-            _ = RunAcquisitionLoopAsync(_cts.Token);
+            // Start live timer (fixed 100ms)
+            _liveTimer.Start();
         }
         catch (Exception ex)
         {
@@ -229,7 +265,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             StopRecording();
         }
 
-        _cts?.Cancel();
+        _liveTimer.Stop();
         _client.Disconnect();
 
         CurrentState = ViewerState.Disconnected;
@@ -265,9 +301,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
             _recordedSampleCount = 0;
             RecordedSampleCountDisplay = 0;
             RecordingTime = "00:00:00";
+            _logTickCounter = 0;
 
             CurrentState = ViewerState.Recording;
-            StatusMessage = $"Recording to {Path.GetFileName(_currentLogPath)}";
+            StatusMessage = $"Recording to {Path.GetFileName(_currentLogPath)} (interval: {SelectedLoggingInterval}ms)";
         }
         catch (Exception ex)
         {
@@ -319,49 +356,46 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     #endregion
 
-    #region Acquisition Loop
+    #region Live Timer
 
-    private async Task RunAcquisitionLoopAsync(CancellationToken ct)
+    private async void OnLiveTimerTick(object? sender, EventArgs e)
     {
-        while (!ct.IsCancellationRequested)
+        try
         {
-            try
-            {
-                var reading = await _client.ReadOnceAsync(ct);
+            // Read from device
+            using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(80));
+            var reading = await _client.ReadOnceAsync(cts.Token);
+            _latestReading = reading;
 
-                // Update UI on dispatcher thread
-                Application.Current.Dispatcher.Invoke(() =>
-                {
-                    UpdateReading(reading);
-                });
+            // 1. Always update chart (Live)
+            UpdateChart(reading);
 
-                await Task.Delay(IntervalMs, ct);
-            }
-            catch (OperationCanceledException)
+            // 2. If recording, check tick counter for logging
+            if (CurrentState == ViewerState.Recording)
             {
-                break;
-            }
-            catch (Exception ex)
-            {
-                Application.Current.Dispatcher.Invoke(() =>
+                _logTickCounter++;
+                if (_logTickCounter >= _logTickThreshold)
                 {
-                    StatusMessage = $"Error: {ex.Message}";
-                });
-
-                // Brief delay before retry
-                try
-                {
-                    await Task.Delay(1000, ct);
+                    WriteToLog(reading);
+                    _logTickCounter = 0;
                 }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
+
+                // Update recording time
+                var recordingElapsed = DateTime.Now - _recordingStartTime;
+                RecordingTime = recordingElapsed.ToString(@"hh\:mm\:ss");
             }
+        }
+        catch (OperationCanceledException)
+        {
+            // Timeout - skip this tick
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Error: {ex.Message}";
         }
     }
 
-    private void UpdateReading(GaugeReading reading)
+    private void UpdateChart(GaugeReading reading)
     {
         _sampleCount++;
         SampleCountDisplay = _sampleCount;
@@ -389,38 +423,36 @@ public partial class MainViewModel : ObservableObject, IDisposable
         // Notify chart to update
         DataUpdated?.Invoke();
 
-        // If recording, write to CSV
-        if (CurrentState == ViewerState.Recording && _csvWriter != null)
+        if (CurrentState == ViewerState.Live)
         {
-            try
-            {
-                var timestampIso = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
-                var pressureStr = reading.PressureTorr.ToString("G", CultureInfo.InvariantCulture);
-                _csvWriter.WriteLine($"{timestampIso},{pressureStr}");
-
-                _recordedSampleCount++;
-                RecordedSampleCountDisplay = _recordedSampleCount;
-
-                // Update recording time
-                var recordingElapsed = DateTime.Now - _recordingStartTime;
-                RecordingTime = recordingElapsed.ToString(@"hh\:mm\:ss");
-
-                // Flush periodically
-                if (_recordedSampleCount % 10 == 0)
-                {
-                    _csvWriter.Flush();
-                }
-
-                StatusMessage = $"Recording - {_recordedSampleCount} samples";
-            }
-            catch (Exception ex)
-            {
-                StatusMessage = $"Write error: {ex.Message}";
-            }
+            StatusMessage = $"Live - {_sampleCount} samples @ 10Hz";
         }
-        else if (CurrentState == ViewerState.Live)
+    }
+
+    private void WriteToLog(GaugeReading reading)
+    {
+        if (_csvWriter == null) return;
+
+        try
         {
-            StatusMessage = $"Live - {_sampleCount} samples";
+            var timestampIso = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+            var pressureStr = reading.PressureTorr.ToString("G", CultureInfo.InvariantCulture);
+            _csvWriter.WriteLine($"{timestampIso},{pressureStr}");
+
+            _recordedSampleCount++;
+            RecordedSampleCountDisplay = _recordedSampleCount;
+
+            // Flush periodically
+            if (_recordedSampleCount % 10 == 0)
+            {
+                _csvWriter.Flush();
+            }
+
+            StatusMessage = $"Recording - {_recordedSampleCount} samples @ {SelectedLoggingInterval}ms";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Write error: {ex.Message}";
         }
     }
 
@@ -431,9 +463,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (_disposed) return;
         _disposed = true;
 
+        _liveTimer.Stop();
         _blinkTimer.Stop();
-        _cts?.Cancel();
-        _cts?.Dispose();
 
         _csvWriter?.Flush();
         _csvWriter?.Dispose();

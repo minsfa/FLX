@@ -61,12 +61,13 @@
                               IsEnabled="{Binding IsDisconnected}"/>
                 </StackPanel>
 
-                <!-- Interval -->
+                <!-- Logging Interval -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="0,0,16,0">
-                    <TextBlock Text="Interval:" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <TextBox Text="{Binding IntervalMs, UpdateSourceTrigger=PropertyChanged}"
-                             Width="50"
-                             IsEnabled="{Binding IsDisconnected}"/>
+                    <TextBlock Text="Log:" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <ComboBox ItemsSource="{Binding LoggingIntervalOptions}"
+                              SelectedItem="{Binding SelectedLoggingInterval}"
+                              Width="70"
+                              IsEnabled="{Binding CanChangeLoggingInterval}"/>
                     <TextBlock Text="ms" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="4,0,0,0"/>
                 </StackPanel>
 
