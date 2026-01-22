@@ -232,13 +232,24 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         try
         {
-            StatusMessage = $"Connecting to {SelectedPort}...";
+            string connectionInfo;
 
-            var settings = SelectedMode == "RS232"
-                ? HVGSerialSettings.ForRs232(BaudRate)
-                : HVGSerialSettings.ForUsb();
-
-            await _client.ConnectAsync(SelectedPort, settings);
+            if (SelectedMode == "RS232")
+            {
+                // RS232: 자동 Baud Rate 스캔 사용
+                StatusMessage = $"Scanning baud rates on {SelectedPort}...";
+                var detectedBaudRate = await _client.ConnectWithAutoScanAsync(SelectedPort);
+                BaudRate = detectedBaudRate;
+                connectionInfo = $"{SelectedPort} @ {detectedBaudRate} bps (auto-detected)";
+            }
+            else
+            {
+                // USB: 기존 방식
+                StatusMessage = $"Connecting to {SelectedPort}...";
+                var settings = HVGSerialSettings.ForUsb();
+                await _client.ConnectAsync(SelectedPort, settings);
+                connectionInfo = $"{SelectedPort} (USB)";
+            }
 
             // Transition to Live state
             CurrentState = ViewerState.Live;
@@ -254,7 +265,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             // Calculate initial tick threshold
             _logTickThreshold = SelectedLoggingInterval / LiveIntervalMs;
 
-            StatusMessage = $"Live - Connected to {SelectedPort}";
+            StatusMessage = $"Live - Connected to {connectionInfo}";
 
             // Start live timer (fixed 100ms)
             _liveTimer.Start();
@@ -367,7 +378,25 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _startTime = DateTime.Now;
         ElapsedTime = "00:00:00";
         DataUpdated?.Invoke();
+        OpenFluxCalculationCommand.NotifyCanExecuteChanged();
     }
+
+    /// <summary>
+    /// Opens the Flux Calculation window with current chart data.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanOpenFluxCalculation))]
+    private void OpenFluxCalculation()
+    {
+        // Create a copy of current data
+        var timeDataCopy = _timeData.ToList();
+        var pressureDataCopy = _pressureData.ToList();
+
+        var fluxWindow = new FluxCalculationWindow(timeDataCopy, pressureDataCopy);
+        fluxWindow.Owner = System.Windows.Application.Current.MainWindow;
+        fluxWindow.ShowDialog();
+    }
+
+    private bool CanOpenFluxCalculation() => _timeData.Count >= 2;
 
     #endregion
 
@@ -438,6 +467,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         // Notify chart to update
         DataUpdated?.Invoke();
+
+        // Enable Flux Calc button when enough data is collected
+        if (_timeData.Count == 2)
+        {
+            OpenFluxCalculationCommand.NotifyCanExecuteChanged();
+        }
 
         if (CurrentState == ViewerState.Live)
         {

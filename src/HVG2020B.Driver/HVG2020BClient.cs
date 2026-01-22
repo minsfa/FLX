@@ -14,10 +14,16 @@ public sealed class HVG2020BClient : IGaugeDevice
     private const char ResponsePrompt = '>';
     private const string PressureCommand = "P";
 
+    /// <summary>
+    /// Common baud rates for RS232 connection (ordered by frequency of use).
+    /// </summary>
+    public static readonly int[] CommonBaudRates = { 19200, 9600, 38400, 57600, 115200 };
+
     private SerialPort? _serialPort;
     private readonly object _lock = new();
     private bool _disposed;
     private HVGSerialSettings _settings = HVGSerialSettings.ForUsb();
+    private int _detectedBaudRate;
 
     /// <summary>
     /// Creates a new HVG-2020B client with auto-generated device ID.
@@ -58,10 +64,120 @@ public sealed class HVG2020BClient : IGaugeDevice
     /// <inheritdoc />
     public event EventHandler<Exception>? ConnectionLost;
 
+    /// <summary>
+    /// Gets the detected baud rate after auto-scan connection.
+    /// </summary>
+    public int DetectedBaudRate => _detectedBaudRate;
+
     /// <inheritdoc />
     public Task ConnectAsync(string portName, CancellationToken cancellationToken = default)
     {
         return ConnectAsync(portName, _settings, cancellationToken);
+    }
+
+    /// <summary>
+    /// Connects to the HVG-2020B gauge with automatic baud rate detection for RS232.
+    /// </summary>
+    /// <param name="portName">COM port name (e.g., "COM3")</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Detected baud rate, or 0 if USB mode</returns>
+    public async Task<int> ConnectWithAutoScanAsync(string portName, CancellationToken cancellationToken = default)
+    {
+        return await ConnectWithAutoScanAsync(portName, CommonBaudRates, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Connects to the HVG-2020B gauge with automatic baud rate detection for RS232.
+    /// </summary>
+    /// <param name="portName">COM port name (e.g., "COM3")</param>
+    /// <param name="baudRatesToTry">Baud rates to try in order</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>Detected baud rate</returns>
+    public async Task<int> ConnectWithAutoScanAsync(string portName, int[] baudRatesToTry, CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        if (string.IsNullOrWhiteSpace(portName))
+            throw new ArgumentException("Port name cannot be empty", nameof(portName));
+
+        ArgumentNullException.ThrowIfNull(baudRatesToTry);
+
+        if (baudRatesToTry.Length == 0)
+            throw new ArgumentException("At least one baud rate must be provided", nameof(baudRatesToTry));
+
+        foreach (var baudRate in baudRatesToTry)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            try
+            {
+                var testSettings = HVGSerialSettings.ForRs232(baudRate, readTimeoutMs: 500);
+                await ConnectAsync(portName, testSettings, cancellationToken).ConfigureAwait(false);
+
+                // Test connection with pressure command
+                if (await TestConnectionAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    // Success! Update settings with normal timeout
+                    _settings = HVGSerialSettings.ForRs232(baudRate);
+                    _detectedBaudRate = baudRate;
+
+                    if (_serialPort != null)
+                    {
+                        _serialPort.ReadTimeout = _settings.ReadTimeoutMs;
+                    }
+
+                    return baudRate;
+                }
+
+                // Test failed, disconnect and try next
+                Disconnect();
+            }
+            catch
+            {
+                // Connection failed, try next baud rate
+                Disconnect();
+            }
+        }
+
+        throw new HVGProtocolException(
+            $"Failed to connect: No valid baud rate found on {portName}. Tried: {string.Join(", ", baudRatesToTry)}");
+    }
+
+    /// <summary>
+    /// Tests if the current connection is valid by sending a command and checking response.
+    /// </summary>
+    private async Task<bool> TestConnectionAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await SendCommandInternalAsync(PressureCommand, cancellationToken).ConfigureAwait(false);
+            return IsValidResponse(response);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Validates response by checking ASCII printable character ratio.
+    /// </summary>
+    public static bool IsValidResponse(string? response)
+    {
+        if (string.IsNullOrEmpty(response))
+            return false;
+
+        if (response.Length < 1)
+            return false;
+
+        // Count ASCII printable characters (0x20~0x7E) and common control chars
+        int printableCount = response.Count(c =>
+            (c >= 0x20 && c <= 0x7E) || c == '\r' || c == '\n');
+
+        double ratio = (double)printableCount / response.Length;
+
+        // 80% or more printable characters indicates valid response
+        return ratio >= 0.8;
     }
 
     /// <inheritdoc />
@@ -187,30 +303,9 @@ public sealed class HVG2020BClient : IGaugeDevice
     /// </summary>
     private async Task<string> SendCommandAsync(string command, CancellationToken cancellationToken)
     {
-        SerialPort port;
-
-        lock (_lock)
-        {
-            if (_serialPort == null || !_serialPort.IsOpen)
-            {
-                throw new HVGProtocolException("Not connected to device");
-            }
-            port = _serialPort;
-        }
-
         try
         {
-            // Clear any pending data
-            port.DiscardInBuffer();
-            port.DiscardOutBuffer();
-
-            // Send command with terminator
-            var commandBytes = Encoding.ASCII.GetBytes(command + CommandTerminator);
-            await port.BaseStream.WriteAsync(commandBytes, cancellationToken).ConfigureAwait(false);
-            await port.BaseStream.FlushAsync(cancellationToken).ConfigureAwait(false);
-
-            // Read response until '>' or timeout
-            return await ReadUntilPromptAsync(port, cancellationToken).ConfigureAwait(false);
+            return await SendCommandInternalAsync(command, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -222,6 +317,35 @@ public sealed class HVG2020BClient : IGaugeDevice
             ConnectionLost?.Invoke(this, hvgEx);
             throw hvgEx;
         }
+    }
+
+    /// <summary>
+    /// Internal command sender without event firing (used for connection testing).
+    /// </summary>
+    private async Task<string> SendCommandInternalAsync(string command, CancellationToken cancellationToken)
+    {
+        SerialPort port;
+
+        lock (_lock)
+        {
+            if (_serialPort == null || !_serialPort.IsOpen)
+            {
+                throw new HVGProtocolException("Not connected to device");
+            }
+            port = _serialPort;
+        }
+
+        // Clear any pending data
+        port.DiscardInBuffer();
+        port.DiscardOutBuffer();
+
+        // Send command with terminator
+        var commandBytes = Encoding.ASCII.GetBytes(command + CommandTerminator);
+        await port.BaseStream.WriteAsync(commandBytes, cancellationToken).ConfigureAwait(false);
+        await port.BaseStream.FlushAsync(cancellationToken).ConfigureAwait(false);
+
+        // Read response until '>' or timeout
+        return await ReadUntilPromptAsync(port, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>

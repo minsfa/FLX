@@ -147,6 +147,7 @@
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
                 <!-- Current Pressure -->
@@ -212,6 +213,12 @@
                 <Button Grid.Column="5" Content="Clear"
                         Command="{Binding ClearChartCommand}"
                         Padding="16,8" Margin="16,0,0,0"/>
+
+                <!-- Flux Calculation Button -->
+                <Button Grid.Column="6" Content="Flux Calc"
+                        Command="{Binding OpenFluxCalculationCommand}"
+                        Padding="16,8" Margin="8,0,0,0"
+                        ToolTip="Calculate Permeance &amp; Flux"/>
             </Grid>
         </Border>
 
