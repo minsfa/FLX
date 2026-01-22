@@ -1,0 +1,170 @@
+<Window x:Class="HVG2020B.Viewer.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:scottplot="clr-namespace:ScottPlot.WPF;assembly=ScottPlot.WPF"
+        xmlns:vm="clr-namespace:HVG2020B.Viewer.ViewModels"
+        mc:Ignorable="d"
+        Title="HVG-2020B Viewer"
+        Height="700" Width="1000"
+        MinHeight="500" MinWidth="800"
+        Background="{StaticResource BackgroundBrush}"
+        WindowStartupLocation="CenterScreen">
+
+    <Window.DataContext>
+        <vm:MainViewModel/>
+    </Window.DataContext>
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header / Controls -->
+        <Border Grid.Row="0" Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="16" Margin="0,0,0,16">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Port Selection -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="0,0,24,0">
+                    <TextBlock Text="Port:" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <ComboBox ItemsSource="{Binding AvailablePorts}"
+                              SelectedItem="{Binding SelectedPort}"
+                              Width="100"
+                              IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBoolConverter}}"/>
+                    <Button Content="⟳" Margin="4,0,0,0" Padding="8,4"
+                            Command="{Binding RefreshPortsCommand}"
+                            IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBoolConverter}}"
+                            ToolTip="Refresh COM ports"/>
+                </StackPanel>
+
+                <!-- Mode Selection -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,0,24,0">
+                    <TextBlock Text="Mode:" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <ComboBox ItemsSource="{Binding ConnectionModes}"
+                              SelectedItem="{Binding SelectedMode}"
+                              Width="80"
+                              IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBoolConverter}}"/>
+                </StackPanel>
+
+                <!-- Interval -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="0,0,24,0">
+                    <TextBlock Text="Interval:" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <TextBox Text="{Binding IntervalMs, UpdateSourceTrigger=PropertyChanged}"
+                             Width="60"
+                             IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBoolConverter}}"/>
+                    <TextBlock Text="ms" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="4,0,0,0"/>
+                </StackPanel>
+
+                <!-- Baud Rate (only for RS232) -->
+                <StackPanel Grid.Column="3" Orientation="Horizontal" Margin="0,0,24,0"
+                            Visibility="{Binding SelectedMode, Converter={StaticResource Rs232VisibilityConverter}}">
+                    <TextBlock Text="Baud:" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <TextBox Text="{Binding BaudRate, UpdateSourceTrigger=PropertyChanged}"
+                             Width="60"
+                             IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBoolConverter}}"/>
+                </StackPanel>
+
+                <!-- Spacer -->
+                <Border Grid.Column="4"/>
+
+                <!-- Start/Stop Buttons -->
+                <Button Grid.Column="5" Content="▶ Start"
+                        Style="{StaticResource PrimaryButton}"
+                        Command="{Binding StartCommand}"
+                        Margin="0,0,8,0" Width="100"/>
+
+                <Button Grid.Column="6" Content="■ Stop"
+                        Style="{StaticResource StopButton}"
+                        Command="{Binding StopCommand}"
+                        Width="100"/>
+            </Grid>
+        </Border>
+
+        <!-- Current Value Display -->
+        <Border Grid.Row="1" Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="24,16" Margin="0,0,0,16">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Current Pressure -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding CurrentPressure}"
+                               FontSize="48" FontWeight="Bold"
+                               Foreground="{StaticResource PrimaryBrush}"/>
+                    <TextBlock Text="{Binding CurrentUnit}"
+                               FontSize="24"
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               VerticalAlignment="Bottom" Margin="8,0,0,8"/>
+                </StackPanel>
+
+                <!-- Sample Count -->
+                <StackPanel Grid.Column="1" Margin="32,0">
+                    <TextBlock Text="Samples" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"/>
+                    <TextBlock Text="{Binding SampleCountDisplay}"
+                               Foreground="{StaticResource TextBrush}" FontSize="20" FontWeight="SemiBold"/>
+                </StackPanel>
+
+                <!-- Elapsed Time -->
+                <StackPanel Grid.Column="2" Margin="32,0">
+                    <TextBlock Text="Elapsed" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"/>
+                    <TextBlock Text="{Binding ElapsedTime}"
+                               Foreground="{StaticResource TextBrush}" FontSize="20" FontWeight="SemiBold"/>
+                </StackPanel>
+
+                <!-- Clear Button -->
+                <Button Grid.Column="3" Content="Clear"
+                        Command="{Binding ClearChartCommand}"
+                        Padding="16,8" Margin="16,0,0,0"/>
+            </Grid>
+        </Border>
+
+        <!-- Chart -->
+        <Border Grid.Row="2" Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="8">
+            <scottplot:WpfPlot x:Name="PressureChart"/>
+        </Border>
+
+        <!-- Status Bar -->
+        <Border Grid.Row="3" Margin="0,16,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Connection Status Indicator -->
+                <Ellipse Grid.Column="0" Width="12" Height="12" Margin="0,0,8,0">
+                    <Ellipse.Style>
+                        <Style TargetType="Ellipse">
+                            <Setter Property="Fill" Value="#666666"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsRunning}" Value="True">
+                                    <Setter Property="Fill" Value="#4CAF50"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Ellipse.Style>
+                </Ellipse>
+
+                <TextBlock Grid.Column="1" Text="{Binding StatusMessage}"
+                           Foreground="{StaticResource TextSecondaryBrush}"/>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
