@@ -217,7 +217,27 @@
 
         <!-- Chart -->
         <Border Grid.Row="2" Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="8">
-            <scottplot:WpfPlot x:Name="PressureChart"/>
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- Scale Toggle -->
+                <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,8,8">
+                    <TextBlock Text="Y-Axis:" Foreground="{StaticResource TextSecondaryBrush}"
+                               VerticalAlignment="Center" Margin="0,0,8,0" FontSize="12"/>
+                    <RadioButton Content="Linear" GroupName="ScaleGroup"
+                                 IsChecked="{Binding UseLogScale, Converter={StaticResource InverseBoolConverter}}"
+                                 Foreground="{StaticResource TextBrush}" VerticalAlignment="Center"
+                                 Margin="0,0,12,0"/>
+                    <RadioButton Content="Log" GroupName="ScaleGroup"
+                                 IsChecked="{Binding UseLogScale}"
+                                 Foreground="{StaticResource TextBrush}" VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <scottplot:WpfPlot Grid.Row="1" x:Name="PressureChart"/>
+            </Grid>
         </Border>
 
         <!-- Status Bar -->

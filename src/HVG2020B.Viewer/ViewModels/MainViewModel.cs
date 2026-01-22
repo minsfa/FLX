@@ -40,6 +40,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
     // Ring buffer for chart (last N seconds at 10Hz = 600 points = 60 seconds)
     private const int MaxDataPoints = 600;
 
+    // Minimum pressure value for log scale (avoids log(0) issues)
+    private const double MinPressureForLog = 1e-12;
+
     // Latest reading cache
     private GaugeReading? _latestReading;
 
@@ -128,6 +131,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private string? _logFilePath;
 
+    /// <summary>
+    /// Y-axis scale type: true = Log, false = Linear
+    /// </summary>
+    [ObservableProperty]
+    private bool _useLogScale = true;
+
     #endregion
 
     #region Computed Properties
@@ -150,6 +159,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public List<double> PressureData => _pressureData;
 
     public event Action? DataUpdated;
+    public event Action? ScaleChanged;
 
     #endregion
 
@@ -179,6 +189,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         // Recalculate tick threshold when logging interval changes
         _logTickThreshold = value / LiveIntervalMs;
+    }
+
+    partial void OnUseLogScaleChanged(bool value)
+    {
+        ScaleChanged?.Invoke();
     }
 
     #endregion
@@ -408,10 +423,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         var elapsed = DateTime.Now - _startTime;
         ElapsedTime = elapsed.ToString(@"hh\:mm\:ss");
 
-        // Add to chart data
+        // Add to chart data (clamp for log scale safety)
         var timeSeconds = elapsed.TotalSeconds;
         _timeData.Add(timeSeconds);
-        _pressureData.Add(reading.PressureTorr);
+        var pressure = Math.Max(reading.PressureTorr, MinPressureForLog);
+        _pressureData.Add(pressure);
 
         // Trim to max points (ring buffer behavior)
         while (_timeData.Count > MaxDataPoints)
