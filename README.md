@@ -1,7 +1,7 @@
 # HVG2020B-Logger
 
 Minimal CLI tool for logging pressure readings from Teledyne HVG-2020B vacuum gauge.
-
+단순 그래프 / logging 만  , flux 계산 없음 
 ## Features
 
 - USB Virtual COM and RS232 support
@@ -9,6 +9,7 @@ Minimal CLI tool for logging pressure readings from Teledyne HVG-2020B vacuum ga
 - Auto-reconnect on connection errors
 - Unit conversion (mbar, Pa, atm → Torr)
 - Clean shutdown with Ctrl+C
+- 
 
 ## Quick Start
 
