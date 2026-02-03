@@ -54,6 +54,7 @@ static async Task<int> RunLoggerAsync(LoggerOptions options, CancellationToken c
     using var csvLogger = CsvLogger.Create(outputPath);
 
     Console.WriteLine($"CSV file created: {csvLogger.FilePath}");
+    Console.WriteLine($"Study ID: {csvLogger.StudyId}");
     Console.WriteLine("Press Ctrl+C to stop.");
     Console.WriteLine();
     Console.WriteLine($"{"Timestamp",-30} {"Pressure (Torr)",-20} {"Unit",-10} {"Status"}");
@@ -98,8 +99,8 @@ static async Task<int> RunLoggerAsync(LoggerOptions options, CancellationToken c
         // Read pressure
         try
         {
-            var timestamp = DateTimeOffset.UtcNow;
-            var reading = await client.ReadPressureOnceAsync(cancellationToken);
+            var reading = await client.ReadOnceAsync(cancellationToken);
+            var timestamp = reading.Timestamp;
 
             // Log to CSV
             csvLogger.Log(timestamp, reading);
@@ -114,7 +115,7 @@ static async Task<int> RunLoggerAsync(LoggerOptions options, CancellationToken c
             // Print to console
             var timestampStr = timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
             var pressureStr = reading.PressureTorr.ToString("E3", CultureInfo.InvariantCulture);
-            var unitStr = reading.UnitRaw ?? "Torr";
+            var unitStr = reading.RawUnit ?? "Torr";
             var statusStr = reading.WasConverted ? "(converted)" : "";
 
             Console.WriteLine($"{timestampStr,-30} {pressureStr,-20} {unitStr,-10} {statusStr}");

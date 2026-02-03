@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Globalization;
 using System.IO;
 using System.IO.Ports;
@@ -13,7 +14,22 @@ namespace HVG2020B.Viewer.ViewModels;
 
 public partial class MainViewModel : ObservableObject, IDisposable
 {
-    private readonly HVG2020BClient _client;
+    private readonly DeviceManager _deviceManager;
+    private readonly HashSet<string> _managedDeviceIds = new();
+    private readonly Dictionary<string, DeviceSeries> _seriesByDevice = new();
+    private readonly ObservableCollection<DeviceSeries> _deviceSeries = new();
+    private readonly Dictionary<string, int> _logTickCounters = new();
+    private readonly List<string> _seriesPalette = new()
+    {
+        "#14427B",
+        "#1F77B4",
+        "#2CA02C",
+        "#FF7F0E",
+        "#D62728",
+        "#9467BD"
+    };
+    private int _seriesPaletteIndex;
+
     private readonly List<double> _timeData = new();
     private readonly List<double> _pressureData = new();
     private DateTime _startTime;
@@ -26,13 +42,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private StreamWriter? _csvWriter;
     private string? _currentLogPath;
 
-    // Live timer: fixed 100ms interval for smooth chart
-    private readonly DispatcherTimer _liveTimer;
     private const int LiveIntervalMs = 100;
 
-    // Logging tick counter
-    private int _logTickCounter;
+    // Logging tick threshold
     private int _logTickThreshold = 5; // 500ms / 100ms = 5 ticks
+    private int _loggingIntervalMs = 500;
 
     // Blinking indicator timer
     private readonly DispatcherTimer _blinkTimer;
@@ -43,19 +57,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
     // Minimum pressure value for log scale (avoids log(0) issues)
     private const double MinPressureForLog = 1e-12;
 
-    // Latest reading cache
-    private GaugeReading? _latestReading;
-
     public MainViewModel()
     {
-        _client = new HVG2020BClient();
-
-        // Setup live timer (fixed 100ms)
-        _liveTimer = new DispatcherTimer
-        {
-            Interval = TimeSpan.FromMilliseconds(LiveIntervalMs)
-        };
-        _liveTimer.Tick += OnLiveTimerTick;
+        _deviceManager = new DeviceManager(TimeSpan.FromMilliseconds(LiveIntervalMs));
+        _deviceManager.ReadingReceived += OnReadingReceived;
+        _deviceManager.ConnectionLost += OnDeviceConnectionLost;
 
         // Setup blink timer for recording indicator
         _blinkTimer = new DispatcherTimer
@@ -76,39 +82,18 @@ public partial class MainViewModel : ObservableObject, IDisposable
     #region Observable Properties
 
     [ObservableProperty]
+    private ObservableCollection<DeviceItem> _devices = new();
+
+    [ObservableProperty]
+    private DeviceItem? _selectedDevice;
+
+    [ObservableProperty]
     private ObservableCollection<string> _availablePorts = new();
 
-    [ObservableProperty]
-    private string? _selectedPort;
+    public static IReadOnlyList<string> ConnectionModes { get; } = new[] { "USB", "RS232" };
 
     [ObservableProperty]
-    private ObservableCollection<string> _connectionModes = new() { "USB", "RS232" };
-
-    [ObservableProperty]
-    private string _selectedMode = "USB";
-
-    [ObservableProperty]
-    private int _baudRate = 19200;
-
-    // Logging interval options (in milliseconds)
-    [ObservableProperty]
-    private ObservableCollection<int> _loggingIntervalOptions = new() { 500, 1000, 2000, 5000, 10000 };
-
-    [ObservableProperty]
-    private int _selectedLoggingInterval = 500;
-
-    [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(ConnectCommand))]
-    [NotifyCanExecuteChangedFor(nameof(DisconnectCommand))]
-    [NotifyCanExecuteChangedFor(nameof(StartRecordingCommand))]
-    [NotifyCanExecuteChangedFor(nameof(StopRecordingCommand))]
     private ViewerState _currentState = ViewerState.Disconnected;
-
-    [ObservableProperty]
-    private string _currentPressure = "---";
-
-    [ObservableProperty]
-    private string _currentUnit = "Torr";
 
     [ObservableProperty]
     private string _statusMessage = "Ready";
@@ -146,10 +131,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public bool IsRecording => CurrentState == ViewerState.Recording;
     public bool IsConnected => CurrentState != ViewerState.Disconnected;
 
-    /// <summary>
-    /// Logging interval can only be changed in Live mode (not Recording).
-    /// </summary>
-    public bool CanChangeLoggingInterval => CurrentState == ViewerState.Live;
+    public ObservableCollection<DeviceSeries> DeviceSeries => _deviceSeries;
 
     #endregion
 
@@ -171,7 +153,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(IsLive));
         OnPropertyChanged(nameof(IsRecording));
         OnPropertyChanged(nameof(IsConnected));
-        OnPropertyChanged(nameof(CanChangeLoggingInterval));
 
         // Handle blink timer
         if (value == ViewerState.Recording)
@@ -185,20 +166,42 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    partial void OnSelectedLoggingIntervalChanged(int value)
-    {
-        // Recalculate tick threshold when logging interval changes
-        _logTickThreshold = value / LiveIntervalMs;
-    }
-
     partial void OnUseLogScaleChanged(bool value)
     {
         ScaleChanged?.Invoke();
     }
 
+    partial void OnSelectedDeviceChanged(DeviceItem? value)
+    {
+        UpdateSelectedSeriesData(value?.DeviceId);
+    }
+
     #endregion
 
     #region Commands
+
+    [RelayCommand]
+    private void AddDevice()
+    {
+        var deviceId = $"HVG-{Devices.Count + 1:00}";
+        var device = new HVG2020BClient(deviceId);
+        var item = new DeviceItem(device);
+
+        Devices.Add(item);
+        item.PropertyChanged += OnDeviceItemPropertyChanged;
+        if (item.SelectedPort == null && AvailablePorts.Count > 0)
+        {
+            item.SelectedPort = AvailablePorts[0];
+        }
+        EnsureDeviceSeries(deviceId);
+
+        if (SelectedDevice == null)
+        {
+            SelectedDevice = item;
+        }
+
+        StatusMessage = $"Device added: {deviceId}";
+    }
 
     [RelayCommand]
     private void RefreshPorts()
@@ -210,101 +213,151 @@ public partial class MainViewModel : ObservableObject, IDisposable
             AvailablePorts.Add(port);
         }
 
-        if (AvailablePorts.Count > 0 && SelectedPort == null)
+        foreach (var device in Devices)
         {
-            SelectedPort = AvailablePorts[0];
+            if (device.SelectedPort == null || !AvailablePorts.Contains(device.SelectedPort))
+            {
+                device.SelectedPort = AvailablePorts.FirstOrDefault();
+            }
         }
 
         StatusMessage = $"Found {ports.Length} COM port(s)";
     }
 
-    /// <summary>
-    /// Connect to device and enter Live mode.
-    /// </summary>
-    [RelayCommand(CanExecute = nameof(CanConnect))]
-    private async Task ConnectAsync()
+    [RelayCommand]
+    private async Task ConnectDeviceAsync(DeviceItem deviceItem)
     {
-        if (string.IsNullOrEmpty(SelectedPort))
+        if (deviceItem == null)
         {
-            StatusMessage = "Please select a COM port";
+            StatusMessage = "Please select a device";
             return;
         }
 
         try
         {
-            string connectionInfo;
+            deviceItem.IsConnecting = true;
 
-            if (SelectedMode == "RS232")
+            if (string.IsNullOrEmpty(deviceItem.SelectedPort))
             {
-                // RS232: 자동 Baud Rate 스캔 사용
-                StatusMessage = $"Scanning baud rates on {SelectedPort}...";
-                var detectedBaudRate = await _client.ConnectWithAutoScanAsync(SelectedPort);
-                BaudRate = detectedBaudRate;
-                connectionInfo = $"{SelectedPort} @ {detectedBaudRate} bps (auto-detected)";
+                StatusMessage = "Please select a COM port";
+                return;
+            }
+
+            if (deviceItem.IsConnected)
+            {
+                StatusMessage = $"{deviceItem.DeviceId} is already connected";
+                return;
+            }
+
+            if (Devices.Any(d =>
+                d.DeviceId != deviceItem.DeviceId &&
+                d.IsConnected &&
+                d.SelectedPort == deviceItem.SelectedPort))
+            {
+                StatusMessage = $"Port {deviceItem.SelectedPort} is already in use";
+                return;
+            }
+
+            string connectionInfo;
+            var device = deviceItem.Device;
+
+            if (deviceItem.SelectedMode == "RS232")
+            {
+                if (device is HVG2020BClient hvgClient)
+                {
+                    // RS232: auto-scan baud rates
+                    StatusMessage = $"Scanning baud rates on {deviceItem.SelectedPort}...";
+                    var detectedBaudRate = await hvgClient.ConnectWithAutoScanAsync(deviceItem.SelectedPort);
+                    deviceItem.BaudRate = detectedBaudRate;
+                    connectionInfo = $"{deviceItem.SelectedPort} @ {detectedBaudRate} bps (auto-detected)";
+                }
+                else
+                {
+                    StatusMessage = $"Connecting to {deviceItem.SelectedPort}...";
+                    await device.ConnectAsync(deviceItem.SelectedPort);
+                    connectionInfo = $"{deviceItem.SelectedPort} (RS232)";
+                }
             }
             else
             {
-                // USB: 기존 방식
-                StatusMessage = $"Connecting to {SelectedPort}...";
-                var settings = HVGSerialSettings.ForUsb();
-                await _client.ConnectAsync(SelectedPort, settings);
-                connectionInfo = $"{SelectedPort} (USB)";
+                StatusMessage = $"Connecting to {deviceItem.SelectedPort}...";
+                if (device is HVG2020BClient hvgClient)
+                {
+                    var settings = HVGSerialSettings.ForUsb();
+                    await hvgClient.ConnectAsync(deviceItem.SelectedPort, settings);
+                }
+                else
+                {
+                    await device.ConnectAsync(deviceItem.SelectedPort);
+                }
+                connectionInfo = $"{deviceItem.SelectedPort} (USB)";
             }
 
-            // Transition to Live state
-            CurrentState = ViewerState.Live;
-            _startTime = DateTime.Now;
-            _sampleCount = 0;
+            deviceItem.IsConnected = device.IsConnected;
+            deviceItem.PortName = device.PortName;
 
-            // Clear previous data
-            _timeData.Clear();
-            _pressureData.Clear();
-            _latestReading = null;
-            DataUpdated?.Invoke();
+            if (_managedDeviceIds.Add(device.DeviceId))
+            {
+                _deviceManager.AddDevice(device);
+            }
+
+            if (CurrentState == ViewerState.Disconnected)
+            {
+                CurrentState = ViewerState.Live;
+                _startTime = DateTime.Now;
+                _sampleCount = 0;
+                _recordedSampleCount = 0;
+            }
 
             // Calculate initial tick threshold
-            _logTickThreshold = SelectedLoggingInterval / LiveIntervalMs;
+            _logTickThreshold = _loggingIntervalMs / LiveIntervalMs;
 
             StatusMessage = $"Live - Connected to {connectionInfo}";
-
-            // Start live timer (fixed 100ms)
-            _liveTimer.Start();
         }
         catch (Exception ex)
         {
             StatusMessage = $"Connection failed: {ex.Message}";
-            CurrentState = ViewerState.Disconnected;
+            UpdateCurrentStateFromDevices();
+        }
+        finally
+        {
+            deviceItem.IsConnecting = false;
         }
     }
-
-    private bool CanConnect() => CurrentState == ViewerState.Disconnected && SelectedPort != null;
 
     /// <summary>
     /// Disconnect from device.
     /// </summary>
-    [RelayCommand(CanExecute = nameof(CanDisconnect))]
-    private void Disconnect()
+    [RelayCommand]
+    private void DisconnectDevice(DeviceItem deviceItem)
     {
+        if (deviceItem == null)
+        {
+            StatusMessage = "No device selected";
+            return;
+        }
+
         // If recording, stop first
         if (CurrentState == ViewerState.Recording)
         {
             StopRecording();
         }
 
-        _liveTimer.Stop();
-        _client.Disconnect();
+        deviceItem.Device.Disconnect();
+        deviceItem.IsConnected = false;
+        deviceItem.PortName = null;
+        deviceItem.CurrentPressure = "---";
 
-        CurrentState = ViewerState.Disconnected;
-        CurrentPressure = "---";
-        StatusMessage = "Disconnected";
+        _deviceManager.RemoveDevice(deviceItem.DeviceId);
+        _managedDeviceIds.Remove(deviceItem.DeviceId);
+
+        UpdateCurrentStateFromDevices();
+        StatusMessage = $"Disconnected {deviceItem.DeviceId}";
     }
-
-    private bool CanDisconnect() => CurrentState != ViewerState.Disconnected;
 
     /// <summary>
     /// Start recording to CSV file.
     /// </summary>
-    [RelayCommand(CanExecute = nameof(CanStartRecording))]
     private void StartRecording()
     {
         try
@@ -327,10 +380,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
             _recordedSampleCount = 0;
             RecordedSampleCountDisplay = 0;
             RecordingTime = "00:00:00";
-            _logTickCounter = 0;
+            _logTickCounters.Clear();
 
             CurrentState = ViewerState.Recording;
-            StatusMessage = $"Recording to {Path.GetFileName(_currentLogPath)} (interval: {SelectedLoggingInterval}ms)";
+            StatusMessage = $"Recording to {Path.GetFileName(_currentLogPath)} (interval: {_loggingIntervalMs}ms)";
         }
         catch (Exception ex)
         {
@@ -338,12 +391,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    private bool CanStartRecording() => CurrentState == ViewerState.Live;
-
     /// <summary>
     /// Stop recording and close CSV file.
     /// </summary>
-    [RelayCommand(CanExecute = nameof(CanStopRecording))]
     private void StopRecording()
     {
         try
@@ -366,11 +416,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    private bool CanStopRecording() => CurrentState == ViewerState.Recording;
-
     [RelayCommand]
     private void ClearChart()
     {
+        foreach (var series in _deviceSeries)
+        {
+            series.TimeData.Clear();
+            series.PressureData.Clear();
+            series.StartTime = default;
+        }
+
         _timeData.Clear();
         _pressureData.Clear();
         _sampleCount = 0;
@@ -400,83 +455,88 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     #endregion
 
-    #region Live Timer
+    #region Device Readings
 
-    private async void OnLiveTimerTick(object? sender, EventArgs e)
+    private void OnReadingReceived(object? sender, (string DeviceId, GaugeReading Reading) payload)
     {
-        try
+        if (!Application.Current.Dispatcher.CheckAccess())
         {
-            // Read from device
-            using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(80));
-            var reading = await _client.ReadOnceAsync(cts.Token);
-            _latestReading = reading;
-
-            // 1. Always update chart (Live)
-            UpdateChart(reading);
-
-            // 2. If recording, check tick counter for logging
-            if (CurrentState == ViewerState.Recording)
-            {
-                _logTickCounter++;
-                if (_logTickCounter >= _logTickThreshold)
-                {
-                    WriteToLog(reading);
-                    _logTickCounter = 0;
-                }
-
-                // Update recording time
-                var recordingElapsed = DateTime.Now - _recordingStartTime;
-                RecordingTime = recordingElapsed.ToString(@"hh\:mm\:ss");
-            }
+            Application.Current.Dispatcher.Invoke(() => HandleReading(payload.DeviceId, payload.Reading));
+            return;
         }
-        catch (OperationCanceledException)
-        {
-            // Timeout - skip this tick
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = $"Error: {ex.Message}";
-        }
+
+        HandleReading(payload.DeviceId, payload.Reading);
     }
 
-    private void UpdateChart(GaugeReading reading)
+    private void HandleReading(string deviceId, GaugeReading reading)
     {
+        var deviceItem = Devices.FirstOrDefault(d => d.DeviceId == deviceId);
+        if (deviceItem == null)
+        {
+            return;
+        }
+
         _sampleCount++;
         SampleCountDisplay = _sampleCount;
 
-        // Update current value display
-        CurrentPressure = reading.PressureTorr.ToString("E3");
-        CurrentUnit = reading.RawUnit ?? "Torr";
+        // Update device display
+        deviceItem.CurrentPressure = $"{reading.PressureTorr:E3} Torr";
+        deviceItem.IsConnected = true;
+        deviceItem.PortName = deviceItem.Device.PortName;
 
-        // Update elapsed time (since connection)
+        // Update elapsed time (since first connection)
         var elapsed = DateTime.Now - _startTime;
         ElapsedTime = elapsed.ToString(@"hh\:mm\:ss");
 
-        // Add to chart data (clamp for log scale safety)
-        var timeSeconds = elapsed.TotalSeconds;
-        _timeData.Add(timeSeconds);
+        // Add to chart data (per device)
+        var series = EnsureDeviceSeries(deviceId);
+        if (series.StartTime == default)
+        {
+            series.StartTime = reading.Timestamp;
+        }
+
+        var timeSeconds = (reading.Timestamp - series.StartTime).TotalSeconds;
+        series.TimeData.Add(timeSeconds);
         var pressure = Math.Max(reading.PressureTorr, MinPressureForLog);
-        _pressureData.Add(pressure);
+        series.PressureData.Add(pressure);
 
-        // Trim to max points (ring buffer behavior)
-        while (_timeData.Count > MaxDataPoints)
+        while (series.TimeData.Count > MaxDataPoints)
         {
-            _timeData.RemoveAt(0);
-            _pressureData.RemoveAt(0);
+            series.TimeData.RemoveAt(0);
+            series.PressureData.RemoveAt(0);
         }
 
-        // Notify chart to update
+        // Update selected series buffer for existing chart binding
+        if (SelectedDevice?.DeviceId == deviceId)
+        {
+            UpdateSelectedSeriesData(deviceId);
+            if (_timeData.Count == 2)
+            {
+                OpenFluxCalculationCommand.NotifyCanExecuteChanged();
+            }
+        }
+
+        // Recording
+        if (CurrentState == ViewerState.Recording)
+        {
+            var counter = _logTickCounters.TryGetValue(deviceId, out var value) ? value + 1 : 1;
+            if (counter >= _logTickThreshold)
+            {
+                WriteToLog(reading);
+                counter = 0;
+            }
+
+            _logTickCounters[deviceId] = counter;
+
+            var recordingElapsed = DateTime.Now - _recordingStartTime;
+            RecordingTime = recordingElapsed.ToString(@"hh\:mm\:ss");
+        }
+
         DataUpdated?.Invoke();
-
-        // Enable Flux Calc button when enough data is collected
-        if (_timeData.Count == 2)
-        {
-            OpenFluxCalculationCommand.NotifyCanExecuteChanged();
-        }
 
         if (CurrentState == ViewerState.Live)
         {
-            StatusMessage = $"Live - {_sampleCount} samples @ 10Hz";
+            StatusMessage = $"Live - {_sampleCount} samples";
         }
     }
 
@@ -486,7 +546,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         try
         {
-            var timestampIso = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+            var timestampIso = reading.Timestamp.ToString("O", CultureInfo.InvariantCulture);
             var pressureStr = reading.PressureTorr.ToString("G", CultureInfo.InvariantCulture);
             _csvWriter.WriteLine($"{timestampIso},{pressureStr}");
 
@@ -499,7 +559,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 _csvWriter.Flush();
             }
 
-            StatusMessage = $"Recording - {_recordedSampleCount} samples @ {SelectedLoggingInterval}ms";
+            StatusMessage = $"Recording - {_recordedSampleCount} samples @ {_loggingIntervalMs}ms";
         }
         catch (Exception ex)
         {
@@ -509,17 +569,166 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     #endregion
 
+    private void OnDeviceConnectionLost(object? sender, (string DeviceId, Exception Error) payload)
+    {
+        if (!Application.Current.Dispatcher.CheckAccess())
+        {
+            Application.Current.Dispatcher.Invoke(() => OnDeviceConnectionLost(sender, payload));
+            return;
+        }
+
+        var deviceItem = Devices.FirstOrDefault(d => d.DeviceId == payload.DeviceId);
+        if (deviceItem != null)
+        {
+            deviceItem.IsConnected = false;
+            deviceItem.CurrentPressure = "---";
+        }
+
+        StatusMessage = $"Connection lost ({payload.DeviceId}): {payload.Error.Message}";
+        UpdateCurrentStateFromDevices();
+    }
+
+    private void OnDeviceItemPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(DeviceItem.IsVisibleOnChart))
+        {
+            DataUpdated?.Invoke();
+        }
+    }
+
+    private DeviceSeries EnsureDeviceSeries(string deviceId)
+    {
+        if (_seriesByDevice.TryGetValue(deviceId, out var existing))
+        {
+            return existing;
+        }
+
+        var series = new DeviceSeries(deviceId, GetNextSeriesColor());
+        _seriesByDevice[deviceId] = series;
+        _deviceSeries.Add(series);
+        return series;
+    }
+
+    private string GetNextSeriesColor()
+    {
+        var color = _seriesPalette[_seriesPaletteIndex % _seriesPalette.Count];
+        _seriesPaletteIndex++;
+        return color;
+    }
+
+    private void UpdateSelectedSeriesData(string? deviceId)
+    {
+        _timeData.Clear();
+        _pressureData.Clear();
+
+        if (deviceId == null)
+        {
+            DataUpdated?.Invoke();
+            return;
+        }
+
+        if (_seriesByDevice.TryGetValue(deviceId, out var series))
+        {
+            _timeData.AddRange(series.TimeData);
+            _pressureData.AddRange(series.PressureData);
+        }
+
+        DataUpdated?.Invoke();
+    }
+
+    private void UpdateCurrentStateFromDevices()
+    {
+        if (Devices.Any(d => d.IsConnected))
+        {
+            if (CurrentState == ViewerState.Recording)
+            {
+                return;
+            }
+
+            CurrentState = ViewerState.Live;
+            return;
+        }
+
+        CurrentState = ViewerState.Disconnected;
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
 
-        _liveTimer.Stop();
         _blinkTimer.Stop();
+
+        foreach (var device in Devices)
+        {
+            device.PropertyChanged -= OnDeviceItemPropertyChanged;
+        }
 
         _csvWriter?.Flush();
         _csvWriter?.Dispose();
 
-        _client.Dispose();
+        _deviceManager.ReadingReceived -= OnReadingReceived;
+        _deviceManager.ConnectionLost -= OnDeviceConnectionLost;
+        _deviceManager.Dispose();
     }
+}
+
+public sealed partial class DeviceItem : ObservableObject
+{
+    public DeviceItem(IGaugeDevice device)
+    {
+        Device = device;
+        DeviceId = device.DeviceId;
+        CurrentPressure = "---";
+    }
+
+    public IGaugeDevice Device { get; }
+
+    public string DeviceId { get; }
+
+    [ObservableProperty]
+    private bool _isConnected;
+
+    [ObservableProperty]
+    private bool _isVisibleOnChart = true;
+
+    [ObservableProperty]
+    private bool _isSettingsExpanded;
+
+    [ObservableProperty]
+    private string? _selectedPort;
+
+    [ObservableProperty]
+    private string _selectedMode = "USB";
+
+    [ObservableProperty]
+    private int _baudRate = 19200;
+
+    [ObservableProperty]
+    private bool _isConnecting;
+
+    [ObservableProperty]
+    private string? _portName;
+
+    [ObservableProperty]
+    private string _currentPressure;
+}
+
+public sealed class DeviceSeries
+{
+    public DeviceSeries(string deviceId, string colorHex)
+    {
+        DeviceId = deviceId;
+        ColorHex = colorHex;
+    }
+
+    public string DeviceId { get; }
+
+    public string ColorHex { get; }
+
+    public List<double> TimeData { get; } = new();
+
+    public List<double> PressureData { get; } = new();
+
+    public DateTimeOffset StartTime { get; set; }
 }

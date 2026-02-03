@@ -105,37 +105,50 @@ public sealed class HVG2020BClient : IGaugeDevice
         if (baudRatesToTry.Length == 0)
             throw new ArgumentException("At least one baud rate must be provided", nameof(baudRatesToTry));
 
+        const int scanTimeoutMs = 2000;
+        const int scanRetriesPerBaud = 2;
+        const int settleDelayMs = 150;
+        const int retryDelayMs = 250;
+
         foreach (var baudRate in baudRatesToTry)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            try
+            for (var attempt = 1; attempt <= scanRetriesPerBaud; attempt++)
             {
-                var testSettings = HVGSerialSettings.ForRs232(baudRate, readTimeoutMs: 500);
-                await ConnectAsync(portName, testSettings, cancellationToken).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
 
-                // Test connection with pressure command
-                if (await TestConnectionAsync(cancellationToken).ConfigureAwait(false))
+                try
                 {
-                    // Success! Update settings with normal timeout
-                    _settings = HVGSerialSettings.ForRs232(baudRate);
-                    _detectedBaudRate = baudRate;
+                    var testSettings = HVGSerialSettings.ForRs232(baudRate, readTimeoutMs: scanTimeoutMs);
+                    await ConnectAsync(portName, testSettings, cancellationToken).ConfigureAwait(false);
 
-                    if (_serialPort != null)
+                    // Give the adapter/device a brief settle time before testing.
+                    await Task.Delay(settleDelayMs, cancellationToken).ConfigureAwait(false);
+
+                    // Test connection with pressure command
+                    if (await TestConnectionAsync(cancellationToken).ConfigureAwait(false))
                     {
-                        _serialPort.ReadTimeout = _settings.ReadTimeoutMs;
+                        // Success! Update settings with normal timeout
+                        _settings = HVGSerialSettings.ForRs232(baudRate);
+                        _detectedBaudRate = baudRate;
+
+                        if (_serialPort != null)
+                        {
+                            _serialPort.ReadTimeout = _settings.ReadTimeoutMs;
+                        }
+
+                        return baudRate;
                     }
 
-                    return baudRate;
+                    // Test failed, disconnect and try next attempt/baud
+                    Disconnect();
+                }
+                catch
+                {
+                    // Connection failed, try next attempt/baud
+                    Disconnect();
                 }
 
-                // Test failed, disconnect and try next
-                Disconnect();
-            }
-            catch
-            {
-                // Connection failed, try next baud rate
-                Disconnect();
+                await Task.Delay(retryDelayMs, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -269,19 +282,29 @@ public sealed class HVG2020BClient : IGaugeDevice
     {
         lock (_lock)
         {
-            if (_serialPort?.IsOpen == true)
+            if (_serialPort != null)
             {
                 try
                 {
-                    _serialPort.Close();
+                    // Discard buffers before closing to unblock pending reads
+                    if (_serialPort.IsOpen)
+                    {
+                        _serialPort.DiscardInBuffer();
+                        _serialPort.DiscardOutBuffer();
+                        _serialPort.BaseStream.Close();
+                        _serialPort.Close();
+                    }
                 }
                 catch
                 {
                     // Ignore close errors
                 }
+                finally
+                {
+                    try { _serialPort.Dispose(); } catch { }
+                    _serialPort = null;
+                }
             }
-            _serialPort?.Dispose();
-            _serialPort = null;
         }
     }
 
@@ -356,45 +379,50 @@ public sealed class HVG2020BClient : IGaugeDevice
         var response = new StringBuilder();
         var buffer = new byte[256];
         var timeoutMs = port.ReadTimeout;
-        var startTime = DateTime.UtcNow;
 
-        while (true)
+        // Windows SerialPort.BaseStream.ReadAsync does NOT respect CancellationToken.
+        // Strategy: start ONE persistent ReadAsync, race it against timeout via Task.WhenAny.
+        // When data arrives, consume it and start a new ReadAsync for more data.
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(timeoutMs);
+
+        Task<int>? activeRead = null;
+
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var elapsed = (DateTime.UtcNow - startTime).TotalMilliseconds;
-            if (elapsed >= timeoutMs)
+            while (true)
             {
-                throw new HVGProtocolTimeoutException(timeoutMs, response.ToString());
-            }
+                timeoutCts.Token.ThrowIfCancellationRequested();
 
-            var remainingTimeout = (int)(timeoutMs - elapsed);
+                // Start a read if none active
+                activeRead ??= port.BaseStream.ReadAsync(buffer, 0, buffer.Length);
 
-            try
-            {
-                // Use a short read timeout to allow checking cancellation
-                using var readCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                readCts.CancelAfter(Math.Min(remainingTimeout, 100));
+                var delayTask = Task.Delay(200, timeoutCts.Token);
+                var completed = await Task.WhenAny(activeRead, delayTask).ConfigureAwait(false);
 
-                var bytesRead = await port.BaseStream.ReadAsync(buffer.AsMemory(0, buffer.Length), readCts.Token).ConfigureAwait(false);
-
-                if (bytesRead > 0)
+                if (completed == activeRead)
                 {
-                    var text = Encoding.ASCII.GetString(buffer, 0, bytesRead);
-                    response.Append(text);
+                    var bytesRead = await activeRead.ConfigureAwait(false);
+                    activeRead = null; // consumed — will start a new one next loop
 
-                    // Check if we received the prompt
-                    if (text.Contains(ResponsePrompt))
+                    if (bytesRead > 0)
                     {
-                        return response.ToString().Trim();
+                        var text = Encoding.ASCII.GetString(buffer, 0, bytesRead);
+                        response.Append(text);
+
+                        if (text.Contains(ResponsePrompt))
+                        {
+                            return response.ToString().Trim();
+                        }
                     }
                 }
+                // else: delay finished first, loop back to check cancellation / start new delay
             }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                // Short timeout expired, continue loop to check overall timeout
-                continue;
-            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // Overall timeout reached (not user cancellation)
+            throw new HVGProtocolTimeoutException(timeoutMs, response.ToString());
         }
     }
 

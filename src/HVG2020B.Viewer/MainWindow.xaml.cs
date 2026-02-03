@@ -1,3 +1,5 @@
+using System.Collections.Specialized;
+using System.Linq;
 using System.Windows;
 using HVG2020B.Viewer.ViewModels;
 using ScottPlot;
@@ -15,6 +17,7 @@ public partial class MainWindow : Window
         _viewModel = (MainViewModel)DataContext;
         _viewModel.DataUpdated += OnDataUpdated;
         _viewModel.ScaleChanged += OnScaleChanged;
+        _viewModel.DeviceSeries.CollectionChanged += OnDeviceSeriesChanged;
 
         SetupChart();
 
@@ -71,6 +74,11 @@ public partial class MainWindow : Window
         OnDataUpdated(); // Re-render with new scale
     }
 
+    private void OnDeviceSeriesChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        OnDataUpdated();
+    }
+
     private void OnDataUpdated()
     {
         if (!Dispatcher.CheckAccess())
@@ -79,42 +87,45 @@ public partial class MainWindow : Window
             return;
         }
 
-        var timeData = _viewModel.TimeData;
-        var pressureData = _viewModel.PressureData;
-
-        if (timeData.Count == 0)
-        {
-            PressureChart.Plot.Clear();
-            PressureChart.Refresh();
-            return;
-        }
-
-        // Use Scatter plot for real-time data
+        var seriesList = _viewModel.DeviceSeries;
+        var visibleIds = new HashSet<string>(
+            _viewModel.Devices.Where(d => d.IsVisibleOnChart).Select(d => d.DeviceId));
         PressureChart.Plot.Clear();
-
-        var scatter = PressureChart.Plot.Add.Scatter(
-            timeData.ToArray(),
-            pressureData.ToArray());
-
-        scatter.Color = ScottPlot.Color.FromHex("#2196F3");
-        scatter.LineWidth = 2;
-        scatter.MarkerSize = 0;
 
         if (_viewModel.UseLogScale)
         {
-            // For log scale, transform data and use custom tick labels
-            var logPressureData = pressureData.Select(p => Math.Log10(Math.Max(p, 1e-12))).ToArray();
+            double? yMin = null;
+            double? yMax = null;
 
-            PressureChart.Plot.Clear();
-            var logScatter = PressureChart.Plot.Add.Scatter(timeData.ToArray(), logPressureData);
-            logScatter.Color = ScottPlot.Color.FromHex("#2196F3");
-            logScatter.LineWidth = 2;
-            logScatter.MarkerSize = 0;
+            foreach (var series in seriesList)
+            {
+                if (series.TimeData.Count == 0 || !visibleIds.Contains(series.DeviceId))
+                {
+                    continue;
+                }
 
-            // Set Y limits based on log-transformed data
-            var yMin = logPressureData.Min() - 1;
-            var yMax = logPressureData.Max() + 1;
-            PressureChart.Plot.Axes.SetLimitsY(yMin, yMax);
+                var logPressureData = series.PressureData
+                    .Select(p => Math.Log10(Math.Max(p, 1e-12)))
+                    .ToArray();
+
+                var logScatter = PressureChart.Plot.Add.Scatter(
+                    series.TimeData.ToArray(),
+                    logPressureData);
+                logScatter.Color = ScottPlot.Color.FromHex(series.ColorHex);
+                logScatter.LineWidth = 2;
+                logScatter.MarkerSize = 0;
+                logScatter.LegendText = series.DeviceId;
+
+                var localMin = logPressureData.Min();
+                var localMax = logPressureData.Max();
+                yMin = yMin.HasValue ? Math.Min(yMin.Value, localMin) : localMin;
+                yMax = yMax.HasValue ? Math.Max(yMax.Value, localMax) : localMax;
+            }
+
+            if (yMin.HasValue && yMax.HasValue)
+            {
+                PressureChart.Plot.Axes.SetLimitsY(yMin.Value - 1, yMax.Value + 1);
+            }
 
             // Custom tick generator with log-scale labels
             var tickGen = new ScottPlot.TickGenerators.NumericAutomatic();
@@ -124,16 +135,50 @@ public partial class MainWindow : Window
         }
         else
         {
-            // Linear scale with auto-scale
+            foreach (var series in seriesList)
+            {
+                if (series.TimeData.Count == 0 || !visibleIds.Contains(series.DeviceId))
+                {
+                    continue;
+                }
+
+                var scatter = PressureChart.Plot.Add.Scatter(
+                    series.TimeData.ToArray(),
+                    series.PressureData.ToArray());
+                scatter.Color = ScottPlot.Color.FromHex(series.ColorHex);
+                scatter.LineWidth = 2;
+                scatter.MarkerSize = 0;
+                scatter.LegendText = series.DeviceId;
+            }
+
             PressureChart.Plot.Axes.Left.TickGenerator = new ScottPlot.TickGenerators.NumericAutomatic();
             PressureChart.Plot.Axes.Left.Label.Text = "Pressure (Torr)";
             PressureChart.Plot.Axes.AutoScale();
         }
 
+        PressureChart.Plot.Legend.IsVisible = seriesList.Count > 0;
+        PressureChart.Plot.Legend.Alignment = Alignment.UpperRight;
+
         // Always auto-scale X axis
         PressureChart.Plot.Axes.AutoScaleX();
 
         PressureChart.Refresh();
+    }
+
+    private async void OnConnectClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe && fe.Tag is DeviceItem deviceItem)
+        {
+            await _viewModel.ConnectDeviceCommand.ExecuteAsync(deviceItem);
+        }
+    }
+
+    private void OnDisconnectClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe && fe.Tag is DeviceItem deviceItem)
+        {
+            _viewModel.DisconnectDeviceCommand.Execute(deviceItem);
+        }
     }
 
     /// <summary>

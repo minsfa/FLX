@@ -17,299 +17,323 @@
     </Window.DataContext>
 
     <Grid Margin="16">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="260"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
 
-        <!-- Header / Controls -->
-        <Border Grid.Row="0" Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="16" Margin="0,0,0,16">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-
-                <!-- Port Selection -->
-                <StackPanel Grid.Column="0" Orientation="Horizontal" Margin="0,0,16,0">
-                    <TextBlock Text="Port:" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <ComboBox ItemsSource="{Binding AvailablePorts}"
-                              SelectedItem="{Binding SelectedPort}"
-                              Width="90"
-                              IsEnabled="{Binding IsDisconnected}"/>
-                    <Button Content="⟳" Margin="4,0,0,0" Padding="8,4"
-                            Command="{Binding RefreshPortsCommand}"
-                            IsEnabled="{Binding IsDisconnected}"
-                            ToolTip="Refresh COM ports"/>
-                </StackPanel>
-
-                <!-- Mode Selection -->
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,0,16,0">
-                    <TextBlock Text="Mode:" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <ComboBox ItemsSource="{Binding ConnectionModes}"
-                              SelectedItem="{Binding SelectedMode}"
-                              Width="70"
-                              IsEnabled="{Binding IsDisconnected}"/>
-                </StackPanel>
-
-                <!-- Logging Interval -->
-                <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="0,0,16,0">
-                    <TextBlock Text="Log:" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <ComboBox ItemsSource="{Binding LoggingIntervalOptions}"
-                              SelectedItem="{Binding SelectedLoggingInterval}"
-                              Width="70"
-                              IsEnabled="{Binding CanChangeLoggingInterval}"/>
-                    <TextBlock Text="ms" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="4,0,0,0"/>
-                </StackPanel>
-
-                <!-- Baud Rate (only for RS232) -->
-                <StackPanel Grid.Column="3" Orientation="Horizontal" Margin="0,0,16,0"
-                            Visibility="{Binding SelectedMode, Converter={StaticResource Rs232VisibilityConverter}}">
-                    <TextBlock Text="Baud:" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                    <TextBox Text="{Binding BaudRate, UpdateSourceTrigger=PropertyChanged}"
-                             Width="60"
-                             IsEnabled="{Binding IsDisconnected}"/>
-                </StackPanel>
-
-                <!-- Spacer -->
-                <Border Grid.Column="4"/>
-
-                <!-- Connect Button -->
-                <Button Grid.Column="5" Content="Connect"
-                        Style="{StaticResource PrimaryButton}"
-                        Command="{Binding ConnectCommand}"
-                        Margin="0,0,8,0" Width="90"/>
-
-                <!-- Start Recording Button -->
-                <Button Grid.Column="6" Content="● REC"
-                        Margin="0,0,8,0" Width="80"
-                        Command="{Binding StartRecordingCommand}">
-                    <Button.Style>
-                        <Style TargetType="Button" BasedOn="{StaticResource PrimaryButton}">
-                            <Setter Property="Background" Value="#E53935"/>
-                            <Style.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Background" Value="#C62828"/>
-                                </Trigger>
-                                <Trigger Property="IsEnabled" Value="False">
-                                    <Setter Property="Background" Value="#555555"/>
-                                    <Setter Property="Foreground" Value="#888888"/>
-                                </Trigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Button.Style>
-                </Button>
-
-                <!-- Stop Recording Button -->
-                <Button Grid.Column="7" Content="■ Stop"
-                        Style="{StaticResource StopButton}"
-                        Command="{Binding StopRecordingCommand}"
-                        Margin="0,0,8,0" Width="80"/>
-
-                <!-- Disconnect Button -->
-                <Button Grid.Column="8" Content="Disconnect"
-                        Width="90"
-                        Command="{Binding DisconnectCommand}">
-                    <Button.Style>
-                        <Style TargetType="Button" BasedOn="{StaticResource PrimaryButton}">
-                            <Setter Property="Background" Value="#757575"/>
-                            <Style.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Background" Value="#616161"/>
-                                </Trigger>
-                                <Trigger Property="IsEnabled" Value="False">
-                                    <Setter Property="Background" Value="#555555"/>
-                                    <Setter Property="Foreground" Value="#888888"/>
-                                </Trigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Button.Style>
-                </Button>
-            </Grid>
-        </Border>
-
-        <!-- Current Value Display -->
-        <Border Grid.Row="1" Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="24,16" Margin="0,0,0,16">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-
-                <!-- Current Pressure -->
-                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="{Binding CurrentPressure}"
-                               FontSize="48" FontWeight="Bold"
-                               Foreground="{StaticResource PrimaryBrush}"/>
-                    <TextBlock Text="{Binding CurrentUnit}"
-                               FontSize="24"
-                               Foreground="{StaticResource TextSecondaryBrush}"
-                               VerticalAlignment="Bottom" Margin="8,0,0,8"/>
-                </StackPanel>
-
-                <!-- Live Sample Count -->
-                <StackPanel Grid.Column="1" Margin="24,0">
-                    <TextBlock Text="Live Samples" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"/>
-                    <TextBlock Text="{Binding SampleCountDisplay}"
-                               Foreground="{StaticResource TextBrush}" FontSize="20" FontWeight="SemiBold"/>
-                </StackPanel>
-
-                <!-- Elapsed Time -->
-                <StackPanel Grid.Column="2" Margin="24,0">
-                    <TextBlock Text="Elapsed" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"/>
-                    <TextBlock Text="{Binding ElapsedTime}"
-                               Foreground="{StaticResource TextBrush}" FontSize="20" FontWeight="SemiBold"/>
-                </StackPanel>
-
-                <!-- Recording Info (visible when recording) -->
-                <StackPanel Grid.Column="3" Margin="24,0">
-                    <StackPanel.Style>
-                        <Style TargetType="StackPanel">
-                            <Setter Property="Visibility" Value="Collapsed"/>
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding IsRecording}" Value="True">
-                                    <Setter Property="Visibility" Value="Visible"/>
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </StackPanel.Style>
-                    <TextBlock Text="Recorded" Foreground="#E53935" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBlock Text="{Binding RecordedSampleCountDisplay}"
-                               Foreground="#E53935" FontSize="20" FontWeight="SemiBold"/>
-                </StackPanel>
-
-                <!-- Recording Time (visible when recording) -->
-                <StackPanel Grid.Column="4" Margin="24,0">
-                    <StackPanel.Style>
-                        <Style TargetType="StackPanel">
-                            <Setter Property="Visibility" Value="Collapsed"/>
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding IsRecording}" Value="True">
-                                    <Setter Property="Visibility" Value="Visible"/>
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </StackPanel.Style>
-                    <TextBlock Text="Rec Time" Foreground="#E53935" FontSize="12" FontWeight="SemiBold"/>
-                    <TextBlock Text="{Binding RecordingTime}"
-                               Foreground="#E53935" FontSize="20" FontWeight="SemiBold"/>
-                </StackPanel>
-
-                <!-- Clear Button -->
-                <Button Grid.Column="5" Content="Clear"
-                        Command="{Binding ClearChartCommand}"
-                        Padding="16,8" Margin="16,0,0,0"/>
-
-                <!-- Flux Calculation Button -->
-                <Button Grid.Column="6" Content="Flux Calc"
-                        Command="{Binding OpenFluxCalculationCommand}"
-                        Padding="16,8" Margin="8,0,0,0"
-                        ToolTip="Calculate Permeance &amp; Flux"/>
-            </Grid>
-        </Border>
-
-        <!-- Chart -->
-        <Border Grid.Row="2" Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="8">
+        <!-- Left Panel: Device List -->
+        <Border Grid.Column="0" Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,16,0">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <!-- Scale Toggle -->
-                <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,8,8">
-                    <TextBlock Text="Y-Axis:" Foreground="{StaticResource TextSecondaryBrush}"
-                               VerticalAlignment="Center" Margin="0,0,8,0" FontSize="12"/>
-                    <RadioButton Content="Linear" GroupName="ScaleGroup"
-                                 IsChecked="{Binding UseLogScale, Converter={StaticResource InverseBoolConverter}}"
-                                 Foreground="{StaticResource TextBrush}" VerticalAlignment="Center"
-                                 Margin="0,0,12,0"/>
-                    <RadioButton Content="Log" GroupName="ScaleGroup"
-                                 IsChecked="{Binding UseLogScale}"
-                                 Foreground="{StaticResource TextBrush}" VerticalAlignment="Center"/>
+                <TextBlock Text="Devices" Foreground="#14427B" FontWeight="SemiBold" FontSize="14" Margin="4,0,0,8"/>
+
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding Devices}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="{StaticResource BackgroundBrush}" CornerRadius="6" Padding="10" Margin="0,0,0,8">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+
+                                        <Grid Grid.Row="0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <TextBlock Grid.Column="0" FontSize="14" Margin="0,0,6,0" VerticalAlignment="Center">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Text" Value="🔴"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsConnected}" Value="True">
+                                                                <Setter Property="Text" Value="🟢"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+
+                                            <TextBlock Grid.Column="1" Text="{Binding DeviceId}" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center"/>
+
+                                            <ToggleButton Grid.Column="2" Content="⚙" Width="26" Height="24" Margin="6,0,0,0"
+                                                          IsChecked="{Binding IsSettingsExpanded}"/>
+                                        </Grid>
+
+                                        <!-- Pressure value - prominent display -->
+                                        <TextBlock Grid.Row="1" Text="{Binding CurrentPressure}"
+                                                   Foreground="{StaticResource PrimaryBrush}" FontSize="18" FontWeight="Bold"
+                                                   Margin="0,6,0,0"/>
+
+                                        <CheckBox Grid.Row="2" Content="Show on Chart" IsChecked="{Binding IsVisibleOnChart}"
+                                                  Foreground="{StaticResource TextSecondaryBrush}" Margin="0,6,0,0"/>
+
+                                        <Border Grid.Row="3" Background="{StaticResource SurfaceBrush}" CornerRadius="6" Padding="8" Margin="0,8,0,0">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsSettingsExpanded}" Value="True">
+                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+
+                                            <Grid>
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                </Grid.RowDefinitions>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+
+                                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Port:" Margin="0,0,6,6" VerticalAlignment="Center"
+                                                           Foreground="{StaticResource TextSecondaryBrush}"/>
+                                                <ComboBox Grid.Row="0" Grid.Column="1"
+                                                          ItemsSource="{Binding DataContext.AvailablePorts, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                          SelectedItem="{Binding SelectedPort}"
+                                                          IsEnabled="{Binding IsConnected, Converter={StaticResource InverseBoolConverter}}"
+                                                          MinWidth="100" Margin="0,0,0,6"/>
+
+                                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Mode:" Margin="0,0,6,6" VerticalAlignment="Center"
+                                                           Foreground="{StaticResource TextSecondaryBrush}"/>
+                                                <ComboBox Grid.Row="1" Grid.Column="1"
+                                                          ItemsSource="{x:Static vm:MainViewModel.ConnectionModes}"
+                                                          SelectedItem="{Binding SelectedMode}"
+                                                          IsEnabled="{Binding IsConnected, Converter={StaticResource InverseBoolConverter}}"
+                                                          MinWidth="100" Margin="0,0,0,6"/>
+
+                                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Baud:" Margin="0,0,6,6" VerticalAlignment="Center"
+                                                           Foreground="{StaticResource TextSecondaryBrush}">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding SelectedMode}" Value="RS232">
+                                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding BaudRate}"
+                                                        IsEnabled="{Binding IsConnected, Converter={StaticResource InverseBoolConverter}}"
+                                                        MinWidth="100" Margin="0,0,0,6">
+                                                    <TextBox.Style>
+                                                        <Style TargetType="TextBox">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding SelectedMode}" Value="RS232">
+                                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBox.Style>
+                                                </TextBox>
+
+                                                <StackPanel Grid.Row="3" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right">
+                                                    <Button Content="Connect" Padding="10,4" Margin="0,0,6,0"
+                                                            Click="OnConnectClick"
+                                                            Tag="{Binding}">
+                                                        <Button.Style>
+                                                            <Style TargetType="Button">
+                                                                <Setter Property="IsEnabled" Value="True"/>
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding IsConnected}" Value="True">
+                                                                        <Setter Property="IsEnabled" Value="False"/>
+                                                                    </DataTrigger>
+                                                                    <DataTrigger Binding="{Binding IsConnecting}" Value="True">
+                                                                        <Setter Property="IsEnabled" Value="False"/>
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </Button.Style>
+                                                    </Button>
+                                                    <Button Content="Disconnect" Padding="10,4"
+                                                            Click="OnDisconnectClick"
+                                                            Tag="{Binding}"
+                                                            IsEnabled="{Binding IsConnected}"/>
+                                                </StackPanel>
+                                            </Grid>
+                                        </Border>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+
+                <StackPanel Grid.Row="2">
+                    <Button Content="Refresh Ports" Margin="0,8,0,0" Padding="10,6"
+                            Command="{Binding RefreshPortsCommand}"/>
+                    <Button Content="+ Add Device" Margin="0,8,0,0" Padding="10,6"
+                            Command="{Binding AddDeviceCommand}"
+                            Foreground="White" Background="#14427B"/>
                 </StackPanel>
-
-                <scottplot:WpfPlot Grid.Row="1" x:Name="PressureChart"/>
             </Grid>
         </Border>
 
-        <!-- Status Bar -->
-        <Border Grid.Row="3" Margin="0,16,0,0">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
+        <!-- Right Panel: Tabs -->
+        <TabControl Grid.Column="1" Margin="0">
+            <TabControl.Resources>
+                <Style TargetType="TabItem">
+                    <Setter Property="Foreground" Value="#14427B"/>
+                    <Setter Property="Padding" Value="12,6"/>
+                </Style>
+            </TabControl.Resources>
 
-                <!-- State Indicator -->
-                <Border Grid.Column="0" CornerRadius="4" Padding="8,4" Margin="0,0,12,0">
-                    <Border.Style>
-                        <Style TargetType="Border">
-                            <Setter Property="Background" Value="#666666"/>
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding CurrentState}" Value="Live">
-                                    <Setter Property="Background" Value="#4CAF50"/>
-                                </DataTrigger>
-                                <DataTrigger Binding="{Binding CurrentState}" Value="Recording">
-                                    <Setter Property="Background" Value="#E53935"/>
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Border.Style>
-                    <TextBlock Foreground="White" FontWeight="SemiBold" FontSize="11">
-                        <TextBlock.Style>
-                            <Style TargetType="TextBlock">
-                                <Setter Property="Text" Value="DISCONNECTED"/>
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding CurrentState}" Value="Live">
-                                        <Setter Property="Text" Value="LIVE"/>
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding CurrentState}" Value="Recording">
-                                        <Setter Property="Text" Value="● REC"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </TextBlock.Style>
-                    </TextBlock>
-                </Border>
+            <TabItem Header="Live View">
+                <Grid Margin="0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
 
-                <!-- Blinking Recording Indicator -->
-                <Ellipse Grid.Column="1" Width="12" Height="12" Margin="0,0,8,0">
-                    <Ellipse.Style>
-                        <Style TargetType="Ellipse">
-                            <Setter Property="Fill" Value="Transparent"/>
-                            <Style.Triggers>
-                                <MultiDataTrigger>
-                                    <MultiDataTrigger.Conditions>
-                                        <Condition Binding="{Binding IsRecording}" Value="True"/>
-                                        <Condition Binding="{Binding IndicatorVisible}" Value="True"/>
-                                    </MultiDataTrigger.Conditions>
-                                    <Setter Property="Fill" Value="#E53935"/>
-                                </MultiDataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Ellipse.Style>
-                </Ellipse>
+                    <!-- Header / Controls -->
+                    <Border Grid.Row="0" Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="16" Margin="0,0,0,16">
+                        <TextBlock Text="Live View" Foreground="#14427B" FontSize="16" FontWeight="SemiBold"/>
+                    </Border>
 
-                <TextBlock Grid.Column="2" Text="{Binding StatusMessage}"
-                           Foreground="{StaticResource TextSecondaryBrush}"
-                           VerticalAlignment="Center"/>
-            </Grid>
-        </Border>
+                    <!-- Info Bar -->
+                    <Border Grid.Row="1" Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="16,12" Margin="0,0,0,16">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Live Sample Count -->
+                            <StackPanel Grid.Column="0" Margin="0,0,24,0">
+                                <TextBlock Text="Samples" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"/>
+                                <TextBlock Text="{Binding SampleCountDisplay}"
+                                           Foreground="{StaticResource TextBrush}" FontSize="20" FontWeight="SemiBold"/>
+                            </StackPanel>
+
+                            <!-- Elapsed Time -->
+                            <StackPanel Grid.Column="1" Margin="0,0,24,0">
+                                <TextBlock Text="Elapsed" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"/>
+                                <TextBlock Text="{Binding ElapsedTime}"
+                                           Foreground="{StaticResource TextBrush}" FontSize="20" FontWeight="SemiBold"/>
+                            </StackPanel>
+
+                            <!-- Spacer -->
+                            <Border Grid.Column="2"/>
+
+                            <!-- Clear Button -->
+                            <Button Grid.Column="3" Content="Clear"
+                                    Command="{Binding ClearChartCommand}"
+                                    Padding="16,8" Margin="0,0,8,0"/>
+
+                            <!-- Flux Calculation Button -->
+                            <Button Grid.Column="4" Content="Flux Calc"
+                                    Command="{Binding OpenFluxCalculationCommand}"
+                                    Padding="16,8"
+                                    ToolTip="Calculate Permeance &amp; Flux"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- Chart -->
+                    <Border Grid.Row="2" Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="8">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <!-- Scale Toggle -->
+                            <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,8,8">
+                                <TextBlock Text="Y-Axis:" Foreground="{StaticResource TextSecondaryBrush}"
+                                           VerticalAlignment="Center" Margin="0,0,8,0" FontSize="12"/>
+                                <RadioButton Content="Linear" GroupName="ScaleGroup"
+                                             IsChecked="{Binding UseLogScale, Converter={StaticResource InverseBoolConverter}}"
+                                             Foreground="{StaticResource TextBrush}" VerticalAlignment="Center"
+                                             Margin="0,0,12,0"/>
+                                <RadioButton Content="Log" GroupName="ScaleGroup"
+                                             IsChecked="{Binding UseLogScale}"
+                                             Foreground="{StaticResource TextBrush}" VerticalAlignment="Center"/>
+                            </StackPanel>
+
+                            <scottplot:WpfPlot Grid.Row="1" x:Name="PressureChart"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- Status Bar -->
+                    <Border Grid.Row="3" Margin="0,16,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- State Indicator -->
+                            <Border Grid.Column="0" CornerRadius="4" Padding="8,4" Margin="0,0,12,0">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Background" Value="#666666"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding CurrentState}" Value="Live">
+                                                <Setter Property="Background" Value="#4CAF50"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding CurrentState}" Value="Recording">
+                                                <Setter Property="Background" Value="#E53935"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <TextBlock Foreground="White" FontWeight="SemiBold" FontSize="11">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Text" Value="DISCONNECTED"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding CurrentState}" Value="Live">
+                                                    <Setter Property="Text" Value="LIVE"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding CurrentState}" Value="Recording">
+                                                    <Setter Property="Text" Value="● REC"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Border>
+
+                            <TextBlock Grid.Column="1" Text="{Binding StatusMessage}"
+                                       Foreground="{StaticResource TextSecondaryBrush}"
+                                       VerticalAlignment="Center"/>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="Analysis">
+                <Grid>
+                    <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="20" Margin="0">
+                        <TextBlock Text="Analysis (coming soon)" Foreground="#14427B" FontSize="14" FontWeight="SemiBold"/>
+                    </Border>
+                </Grid>
+            </TabItem>
+        </TabControl>
     </Grid>
 </Window>
