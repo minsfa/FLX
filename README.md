@@ -1,4 +1,4 @@
-# HVG2020B-Logger
+LOGGING AND  MULTI FULX Calculator
 
 Minimal CLI tool for logging pressure readings from Teledyne HVG-2020B vacuum gauge.
 
