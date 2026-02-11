@@ -165,22 +165,6 @@ public partial class MainWindow : Window
         PressureChart.Refresh();
     }
 
-    private async void OnConnectClick(object sender, RoutedEventArgs e)
-    {
-        if (sender is FrameworkElement fe && fe.Tag is DeviceItem deviceItem)
-        {
-            await _viewModel.ConnectDeviceCommand.ExecuteAsync(deviceItem);
-        }
-    }
-
-    private void OnDisconnectClick(object sender, RoutedEventArgs e)
-    {
-        if (sender is FrameworkElement fe && fe.Tag is DeviceItem deviceItem)
-        {
-            _viewModel.DisconnectDeviceCommand.Execute(deviceItem);
-        }
-    }
-
     /// <summary>
     /// Format log-scale tick labels as scientific notation (10^x)
     /// </summary>

@@ -8,6 +8,7 @@ using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HVG2020B.Core;
+using HVG2020B.Core.Models;
 using HVG2020B.Driver;
 
 namespace HVG2020B.Viewer.ViewModels;
@@ -50,6 +51,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     // Blinking indicator timer
     private readonly DispatcherTimer _blinkTimer;
+    private readonly DispatcherTimer _scanTimer;
+    private CancellationTokenSource? _scanCts;
 
     // Ring buffer for chart (last N seconds at 10Hz = 600 points = 60 seconds)
     private const int MaxDataPoints = 600;
@@ -76,7 +79,17 @@ public partial class MainViewModel : ObservableObject, IDisposable
             }
         };
 
-        RefreshPorts();
+        _scanTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(1)
+        };
+        _scanTimer.Tick += (_, _) =>
+        {
+            if (IsScanning)
+            {
+                ScanElapsedSeconds++;
+            }
+        };
     }
 
     #region Observable Properties
@@ -88,15 +101,39 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private DeviceItem? _selectedDevice;
 
     [ObservableProperty]
-    private ObservableCollection<string> _availablePorts = new();
-
-    public static IReadOnlyList<string> ConnectionModes { get; } = new[] { "USB", "RS232" };
-
-    [ObservableProperty]
     private ViewerState _currentState = ViewerState.Disconnected;
 
     [ObservableProperty]
     private string _statusMessage = "Ready";
+
+    [ObservableProperty]
+    private ObservableCollection<StudyItem> _studies = new();
+
+    [ObservableProperty]
+    private bool _isNewStudyDialogOpen;
+
+    [ObservableProperty]
+    private string _newStudyTitle = string.Empty;
+
+    [ObservableProperty]
+    private ObservableCollection<NewStudyDeviceOption> _newStudyDeviceSelections = new();
+
+    [ObservableProperty]
+    private bool _isScanning;
+
+    [ObservableProperty]
+    private string _scanProgressText = string.Empty;
+
+    [ObservableProperty]
+    private double _scanProgressValue;
+
+    [ObservableProperty]
+    private int _scanElapsedSeconds;
+
+    [ObservableProperty]
+    private bool _hasScanResults;
+
+    public ObservableCollection<ScannedDevice> ScanResults { get; } = new();
 
     [ObservableProperty]
     private int _sampleCountDisplay;
@@ -181,178 +218,266 @@ public partial class MainViewModel : ObservableObject, IDisposable
     #region Commands
 
     [RelayCommand]
-    private void AddDevice()
+    private async Task ScanForDevices()
     {
-        var deviceId = $"HVG-{Devices.Count + 1:00}";
-        var device = new HVG2020BClient(deviceId);
-        var item = new DeviceItem(device);
+        if (IsScanning)
+        {
+            return;
+        }
+
+        _scanCts?.Cancel();
+        _scanCts?.Dispose();
+        _scanCts = new CancellationTokenSource();
+
+        IsScanning = true;
+        HasScanResults = false;
+        ScanProgressValue = 0;
+        ScanElapsedSeconds = 0;
+        ScanProgressText = "Starting scan...";
+        ScanResults.Clear();
+        _scanTimer.Start();
+
+        var token = _scanCts.Token;
+        try
+        {
+            var ports = SerialPort.GetPortNames().OrderBy(p => p).ToArray();
+            var connectedPorts = Devices
+                .Where(d => d.IsConnected && !string.IsNullOrWhiteSpace(d.PortName))
+                .Select(d => d.PortName!)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            var portsToScan = ports.Where(p => !connectedPorts.Contains(p)).ToArray();
+            if (portsToScan.Length == 0)
+            {
+                ScanProgressText = "No available ports to scan";
+                HasScanResults = true;
+                return;
+            }
+
+            for (var i = 0; i < portsToScan.Length; i++)
+            {
+                token.ThrowIfCancellationRequested();
+
+                var port = portsToScan[i];
+                ScanProgressText = $"{port} 시도 중 ({i + 1}/{portsToScan.Length})";
+                ScanProgressValue = (double)(i + 1) / portsToScan.Length;
+
+                var client = new HVG2020BClient();
+                try
+                {
+                    await client.ConnectWithAutoScanAsync(port, token);
+
+                    ScanResults.Add(new ScannedDevice
+                    {
+                        DeviceId = client.DeviceId,
+                        PortName = port,
+                        DeviceType = client.DeviceType,
+                        Device = client,
+                        IsAdded = false
+                    });
+                }
+                catch (OperationCanceledException)
+                {
+                    client.Dispose();
+                    throw;
+                }
+                catch
+                {
+                    client.Dispose();
+                }
+            }
+
+            HasScanResults = true;
+            ScanProgressText = ScanResults.Count > 0
+                ? $"✅ {ScanResults.Count} devices found"
+                : "No devices found";
+        }
+        catch (OperationCanceledException)
+        {
+            ScanProgressText = "Scan cancelled";
+        }
+        finally
+        {
+            IsScanning = false;
+            _scanTimer.Stop();
+        }
+    }
+
+    [RelayCommand]
+    private void CancelScan()
+    {
+        _scanCts?.Cancel();
+    }
+
+    [RelayCommand]
+    private async Task AddScannedDevice(ScannedDevice device)
+    {
+        if (device.IsAdded)
+        {
+            return;
+        }
+
+        IGaugeDevice deviceToAdd = device.Device;
+        var replacedDevice = false;
+        if (!deviceToAdd.IsConnected)
+        {
+            try
+            {
+                var reconnectClient = new HVG2020BClient(device.DeviceId);
+                await reconnectClient.ConnectWithAutoScanAsync(device.PortName);
+                deviceToAdd = reconnectClient;
+                replacedDevice = true;
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = $"Reconnect failed: {ex.Message}";
+                return;
+            }
+        }
+
+        var item = new DeviceItem(deviceToAdd);
+        item.IsConnected = deviceToAdd.IsConnected;
+        item.PortName = device.PortName;
 
         Devices.Add(item);
         item.PropertyChanged += OnDeviceItemPropertyChanged;
-        if (item.SelectedPort == null && AvailablePorts.Count > 0)
-        {
-            item.SelectedPort = AvailablePorts[0];
-        }
-        EnsureDeviceSeries(deviceId);
+        EnsureDeviceSeries(item.DeviceId);
 
         if (SelectedDevice == null)
         {
             SelectedDevice = item;
         }
 
-        StatusMessage = $"Device added: {deviceId}";
+        if (replacedDevice)
+        {
+            device.Device.Dispose();
+        }
+
+        device.IsAdded = true;
+
+        if (_managedDeviceIds.Add(item.DeviceId))
+        {
+            _deviceManager.AddDevice(item.Device);
+        }
+
+        if (CurrentState == ViewerState.Disconnected)
+        {
+            CurrentState = ViewerState.Live;
+            _startTime = DateTime.Now;
+            _sampleCount = 0;
+            _recordedSampleCount = 0;
+        }
+
+        StatusMessage = $"Device added: {item.DeviceId}";
+
+        if (ScanResults.All(r => r.IsAdded))
+        {
+            HasScanResults = false;
+        }
     }
 
     [RelayCommand]
-    private void RefreshPorts()
+    private void RemoveDevice(DeviceItem device)
     {
-        var ports = SerialPort.GetPortNames().OrderBy(p => p).ToArray();
-        AvailablePorts.Clear();
-        foreach (var port in ports)
+        if (device == null)
         {
-            AvailablePorts.Add(port);
-        }
-
-        foreach (var device in Devices)
-        {
-            if (device.SelectedPort == null || !AvailablePorts.Contains(device.SelectedPort))
-            {
-                device.SelectedPort = AvailablePorts.FirstOrDefault();
-            }
-        }
-
-        StatusMessage = $"Found {ports.Length} COM port(s)";
-    }
-
-    [RelayCommand]
-    private async Task ConnectDeviceAsync(DeviceItem deviceItem)
-    {
-        if (deviceItem == null)
-        {
-            StatusMessage = "Please select a device";
             return;
         }
 
-        try
+        device.Device.Disconnect();
+        device.IsConnected = false;
+        device.PortName = null;
+        device.CurrentPressure = "---";
+
+        _deviceManager.RemoveDevice(device.DeviceId);
+        _managedDeviceIds.Remove(device.DeviceId);
+        _logTickCounters.Remove(device.DeviceId);
+
+        if (_seriesByDevice.TryGetValue(device.DeviceId, out var series))
         {
-            deviceItem.IsConnecting = true;
-
-            if (string.IsNullOrEmpty(deviceItem.SelectedPort))
-            {
-                StatusMessage = "Please select a COM port";
-                return;
-            }
-
-            if (deviceItem.IsConnected)
-            {
-                StatusMessage = $"{deviceItem.DeviceId} is already connected";
-                return;
-            }
-
-            if (Devices.Any(d =>
-                d.DeviceId != deviceItem.DeviceId &&
-                d.IsConnected &&
-                d.SelectedPort == deviceItem.SelectedPort))
-            {
-                StatusMessage = $"Port {deviceItem.SelectedPort} is already in use";
-                return;
-            }
-
-            string connectionInfo;
-            var device = deviceItem.Device;
-
-            if (deviceItem.SelectedMode == "RS232")
-            {
-                if (device is HVG2020BClient hvgClient)
-                {
-                    // RS232: auto-scan baud rates
-                    StatusMessage = $"Scanning baud rates on {deviceItem.SelectedPort}...";
-                    var detectedBaudRate = await hvgClient.ConnectWithAutoScanAsync(deviceItem.SelectedPort);
-                    deviceItem.BaudRate = detectedBaudRate;
-                    connectionInfo = $"{deviceItem.SelectedPort} @ {detectedBaudRate} bps (auto-detected)";
-                }
-                else
-                {
-                    StatusMessage = $"Connecting to {deviceItem.SelectedPort}...";
-                    await device.ConnectAsync(deviceItem.SelectedPort);
-                    connectionInfo = $"{deviceItem.SelectedPort} (RS232)";
-                }
-            }
-            else
-            {
-                StatusMessage = $"Connecting to {deviceItem.SelectedPort}...";
-                if (device is HVG2020BClient hvgClient)
-                {
-                    var settings = HVGSerialSettings.ForUsb();
-                    await hvgClient.ConnectAsync(deviceItem.SelectedPort, settings);
-                }
-                else
-                {
-                    await device.ConnectAsync(deviceItem.SelectedPort);
-                }
-                connectionInfo = $"{deviceItem.SelectedPort} (USB)";
-            }
-
-            deviceItem.IsConnected = device.IsConnected;
-            deviceItem.PortName = device.PortName;
-
-            if (_managedDeviceIds.Add(device.DeviceId))
-            {
-                _deviceManager.AddDevice(device);
-            }
-
-            if (CurrentState == ViewerState.Disconnected)
-            {
-                CurrentState = ViewerState.Live;
-                _startTime = DateTime.Now;
-                _sampleCount = 0;
-                _recordedSampleCount = 0;
-            }
-
-            // Calculate initial tick threshold
-            _logTickThreshold = _loggingIntervalMs / LiveIntervalMs;
-
-            StatusMessage = $"Live - Connected to {connectionInfo}";
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = $"Connection failed: {ex.Message}";
-            UpdateCurrentStateFromDevices();
-        }
-        finally
-        {
-            deviceItem.IsConnecting = false;
-        }
-    }
-
-    /// <summary>
-    /// Disconnect from device.
-    /// </summary>
-    [RelayCommand]
-    private void DisconnectDevice(DeviceItem deviceItem)
-    {
-        if (deviceItem == null)
-        {
-            StatusMessage = "No device selected";
-            return;
+            _seriesByDevice.Remove(device.DeviceId);
+            _deviceSeries.Remove(series);
         }
 
-        // If recording, stop first
-        if (CurrentState == ViewerState.Recording)
-        {
-            StopRecording();
-        }
-
-        deviceItem.Device.Disconnect();
-        deviceItem.IsConnected = false;
-        deviceItem.PortName = null;
-        deviceItem.CurrentPressure = "---";
-
-        _deviceManager.RemoveDevice(deviceItem.DeviceId);
-        _managedDeviceIds.Remove(deviceItem.DeviceId);
+        Devices.Remove(device);
+        device.PropertyChanged -= OnDeviceItemPropertyChanged;
 
         UpdateCurrentStateFromDevices();
-        StatusMessage = $"Disconnected {deviceItem.DeviceId}";
+        DataUpdated?.Invoke();
+    }
+
+    [RelayCommand]
+    private void ToggleGraph(DeviceItem device)
+    {
+        if (device == null)
+        {
+            return;
+        }
+
+        device.IsVisibleOnChart = !device.IsVisibleOnChart;
+    }
+
+    [RelayCommand]
+    private void OpenNewStudyDialog()
+    {
+        IsNewStudyDialogOpen = true;
+        NewStudyTitle = string.Empty;
+        NewStudyDeviceSelections.Clear();
+
+        foreach (var device in Devices.Where(d => d.IsConnected))
+        {
+            NewStudyDeviceSelections.Add(new NewStudyDeviceOption(device.DeviceId, isSelected: true));
+        }
+
+        if (NewStudyDeviceSelections.Count == 0)
+        {
+            StatusMessage = "No connected devices available for study";
+        }
+    }
+
+    [RelayCommand]
+    private void CancelNewStudy()
+    {
+        IsNewStudyDialogOpen = false;
+        NewStudyTitle = string.Empty;
+        NewStudyDeviceSelections.Clear();
+    }
+
+    [RelayCommand]
+    private void CreateNewStudy()
+    {
+        if (string.IsNullOrWhiteSpace(NewStudyTitle))
+        {
+            StatusMessage = "Please enter a study title";
+            return;
+        }
+
+        var selectedDevices = NewStudyDeviceSelections
+            .Where(d => d.IsSelected)
+            .Select(d => d.DeviceId)
+            .ToList();
+
+        if (selectedDevices.Count == 0)
+        {
+            StatusMessage = "Please select at least one device";
+            return;
+        }
+
+        var metadata = new StudyMetadata
+        {
+            StudyId = GenerateStudyId(),
+            Title = NewStudyTitle.Trim(),
+            CreatedAt = DateTimeOffset.Now,
+            DeviceIds = selectedDevices
+        };
+
+        Studies.Insert(0, new StudyItem(metadata));
+
+        IsNewStudyDialogOpen = false;
+        NewStudyTitle = string.Empty;
+        NewStudyDeviceSelections.Clear();
+
+        StatusMessage = $"Study created: {metadata.StudyId}";
     }
 
     /// <summary>
@@ -652,12 +777,21 @@ public partial class MainViewModel : ObservableObject, IDisposable
         CurrentState = ViewerState.Disconnected;
     }
 
+    private static string GenerateStudyId()
+    {
+        var now = DateTime.Now;
+        return $"STD-{now:yyyyMMdd}-{now:HHmmss}";
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
 
         _blinkTimer.Stop();
+        _scanTimer.Stop();
+        _scanCts?.Cancel();
+        _scanCts?.Dispose();
 
         foreach (var device in Devices)
         {
@@ -693,21 +827,6 @@ public sealed partial class DeviceItem : ObservableObject
     private bool _isVisibleOnChart = true;
 
     [ObservableProperty]
-    private bool _isSettingsExpanded;
-
-    [ObservableProperty]
-    private string? _selectedPort;
-
-    [ObservableProperty]
-    private string _selectedMode = "USB";
-
-    [ObservableProperty]
-    private int _baudRate = 19200;
-
-    [ObservableProperty]
-    private bool _isConnecting;
-
-    [ObservableProperty]
     private string? _portName;
 
     [ObservableProperty]
@@ -731,4 +850,18 @@ public sealed class DeviceSeries
     public List<double> PressureData { get; } = new();
 
     public DateTimeOffset StartTime { get; set; }
+}
+
+public sealed partial class NewStudyDeviceOption : ObservableObject
+{
+    public NewStudyDeviceOption(string deviceId, bool isSelected)
+    {
+        DeviceId = deviceId;
+        _isSelected = isSelected;
+    }
+
+    public string DeviceId { get; }
+
+    [ObservableProperty]
+    private bool _isSelected;
 }
