@@ -1,6 +1,5 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.Globalization;
 using System.IO;
 using System.IO.Ports;
 using System.Windows;
@@ -19,7 +18,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private readonly HashSet<string> _managedDeviceIds = new();
     private readonly Dictionary<string, DeviceSeries> _seriesByDevice = new();
     private readonly ObservableCollection<DeviceSeries> _deviceSeries = new();
-    private readonly Dictionary<string, int> _logTickCounters = new();
     private readonly List<string> _seriesPalette = new()
     {
         "#14427B",
@@ -36,18 +34,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private DateTime _startTime;
     private DateTime _recordingStartTime;
     private int _sampleCount;
-    private int _recordedSampleCount;
     private bool _disposed;
 
-    // CSV logging
-    private StreamWriter? _csvWriter;
-    private string? _currentLogPath;
+    // Per-study recording (multiple simultaneous)
+    private readonly List<StudyItem> _recordingStudies = new();
 
     private const int LiveIntervalMs = 100;
 
     // Logging tick threshold
-    private int _logTickThreshold = 5; // 500ms / 100ms = 5 ticks
-    private int _loggingIntervalMs = 500;
+    private const int LogTickThreshold = 5; // 500ms / 100ms = 5 ticks
 
     // Blinking indicator timer
     private readonly DispatcherTimer _blinkTimer;
@@ -365,7 +360,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
             CurrentState = ViewerState.Live;
             _startTime = DateTime.Now;
             _sampleCount = 0;
-            _recordedSampleCount = 0;
         }
 
         StatusMessage = $"Device added: {item.DeviceId}";
@@ -374,6 +368,39 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             HasScanResults = false;
         }
+    }
+
+    [RelayCommand]
+    private void AddEmulatorDevice()
+    {
+        var emulator = new EmulatorDevice();
+        emulator.ConnectAsync("EMULATOR").GetAwaiter().GetResult();
+
+        var item = new DeviceItem(emulator)
+        {
+            IsConnected = true,
+            PortName = "EMULATOR"
+        };
+
+        Devices.Add(item);
+        item.PropertyChanged += OnDeviceItemPropertyChanged;
+        EnsureDeviceSeries(item.DeviceId);
+
+        SelectedDevice ??= item;
+
+        if (_managedDeviceIds.Add(item.DeviceId))
+        {
+            _deviceManager.AddDevice(item.Device);
+        }
+
+        if (CurrentState == ViewerState.Disconnected)
+        {
+            CurrentState = ViewerState.Live;
+            _startTime = DateTime.Now;
+            _sampleCount = 0;
+        }
+
+        StatusMessage = $"Emulator added: {item.DeviceId}";
     }
 
     [RelayCommand]
@@ -391,7 +418,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         _deviceManager.RemoveDevice(device.DeviceId);
         _managedDeviceIds.Remove(device.DeviceId);
-        _logTickCounters.Remove(device.DeviceId);
 
         if (_seriesByDevice.TryGetValue(device.DeviceId, out var series))
         {
@@ -480,35 +506,32 @@ public partial class MainViewModel : ObservableObject, IDisposable
         StatusMessage = $"Study created: {metadata.StudyId}";
     }
 
-    /// <summary>
-    /// Start recording to CSV file.
-    /// </summary>
-    private void StartRecording()
+    [RelayCommand]
+    private void StartStudyRecording(object? parameter)
     {
+        if (parameter is not StudyItem study) return;
+        if (study.State != StudyState.Ready) return;
+
+        if (CurrentState == ViewerState.Disconnected)
+        {
+            StatusMessage = "Cannot record: no devices connected";
+            return;
+        }
+
         try
         {
-            // Create log directory if needed
             var logDir = Path.Combine(Directory.GetCurrentDirectory(), "logs");
-            if (!Directory.Exists(logDir))
+            study.StartRecording(logDir);
+            _recordingStudies.Add(study);
+
+            if (CurrentState != ViewerState.Recording)
             {
-                Directory.CreateDirectory(logDir);
+                CurrentState = ViewerState.Recording;
+                _recordingStartTime = DateTime.Now;
+                RecordingTime = "00:00:00";
             }
 
-            // Create new log file
-            var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-            _currentLogPath = Path.Combine(logDir, $"hvg_2020b_{timestamp}.csv");
-            _csvWriter = new StreamWriter(_currentLogPath, false, System.Text.Encoding.UTF8);
-            _csvWriter.WriteLine("timestamp_iso,pressure_torr");
-
-            LogFilePath = _currentLogPath;
-            _recordingStartTime = DateTime.Now;
-            _recordedSampleCount = 0;
-            RecordedSampleCountDisplay = 0;
-            RecordingTime = "00:00:00";
-            _logTickCounters.Clear();
-
-            CurrentState = ViewerState.Recording;
-            StatusMessage = $"Recording to {Path.GetFileName(_currentLogPath)} (interval: {_loggingIntervalMs}ms)";
+            StatusMessage = $"Recording '{study.Title}' ({_recordingStudies.Count} active)";
         }
         catch (Exception ex)
         {
@@ -516,29 +539,36 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>
-    /// Stop recording and close CSV file.
-    /// </summary>
-    private void StopRecording()
+    [RelayCommand]
+    private void StopStudyRecording(object? parameter)
     {
-        try
-        {
-            _csvWriter?.Flush();
-            _csvWriter?.Close();
-            _csvWriter?.Dispose();
-            _csvWriter = null;
+        if (parameter is not StudyItem study) return;
+        if (study.State != StudyState.Recording) return;
 
-            var savedPath = _currentLogPath;
-            _currentLogPath = null;
+        study.StopRecording();
+        _recordingStudies.Remove(study);
 
-            CurrentState = ViewerState.Live;
-            StatusMessage = $"Recording stopped - Saved {_recordedSampleCount} samples to {Path.GetFileName(savedPath)}";
-        }
-        catch (Exception ex)
+        StatusMessage = $"Stopped '{study.Title}' - {study.RecordedSampleCount} samples";
+
+        if (_recordingStudies.Count == 0)
         {
-            StatusMessage = $"Error stopping recording: {ex.Message}";
             CurrentState = ViewerState.Live;
         }
+    }
+
+    [RelayCommand]
+    private void DeleteStudy(object? parameter)
+    {
+        if (parameter is not StudyItem study) return;
+
+        if (study.State == StudyState.Recording)
+        {
+            StopStudyRecording(study);
+        }
+
+        study.Dispose();
+        Studies.Remove(study);
+        StatusMessage = $"Study deleted: {study.StudyId}";
     }
 
     [RelayCommand]
@@ -641,17 +671,22 @@ public partial class MainViewModel : ObservableObject, IDisposable
             }
         }
 
-        // Recording
-        if (CurrentState == ViewerState.Recording)
+        // Per-study recording (multiple simultaneous)
+        if (_recordingStudies.Count > 0)
         {
-            var counter = _logTickCounters.TryGetValue(deviceId, out var value) ? value + 1 : 1;
-            if (counter >= _logTickThreshold)
+            var totalWritten = 0;
+            foreach (var activeStudy in _recordingStudies)
             {
-                WriteToLog(reading);
-                counter = 0;
+                if (activeStudy.TryWriteReading(deviceId, reading, LogTickThreshold))
+                    totalWritten++;
             }
 
-            _logTickCounters[deviceId] = counter;
+            if (totalWritten > 0)
+            {
+                var totalSamples = _recordingStudies.Sum(s => s.RecordedSampleCount);
+                RecordedSampleCountDisplay = totalSamples;
+                StatusMessage = $"Recording {_recordingStudies.Count} studies - {totalSamples} total samples";
+            }
 
             var recordingElapsed = DateTime.Now - _recordingStartTime;
             RecordingTime = recordingElapsed.ToString(@"hh\:mm\:ss");
@@ -662,33 +697,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (CurrentState == ViewerState.Live)
         {
             StatusMessage = $"Live - {_sampleCount} samples";
-        }
-    }
-
-    private void WriteToLog(GaugeReading reading)
-    {
-        if (_csvWriter == null) return;
-
-        try
-        {
-            var timestampIso = reading.Timestamp.ToString("O", CultureInfo.InvariantCulture);
-            var pressureStr = reading.PressureTorr.ToString("G", CultureInfo.InvariantCulture);
-            _csvWriter.WriteLine($"{timestampIso},{pressureStr}");
-
-            _recordedSampleCount++;
-            RecordedSampleCountDisplay = _recordedSampleCount;
-
-            // Flush periodically
-            if (_recordedSampleCount % 10 == 0)
-            {
-                _csvWriter.Flush();
-            }
-
-            StatusMessage = $"Recording - {_recordedSampleCount} samples @ {_loggingIntervalMs}ms";
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = $"Write error: {ex.Message}";
         }
     }
 
@@ -798,8 +806,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
             device.PropertyChanged -= OnDeviceItemPropertyChanged;
         }
 
-        _csvWriter?.Flush();
-        _csvWriter?.Dispose();
+        foreach (var recording in _recordingStudies)
+        {
+            recording.StopRecording();
+        }
+        _recordingStudies.Clear();
+        foreach (var study in Studies)
+        {
+            study.Dispose();
+        }
 
         _deviceManager.ReadingReceived -= OnReadingReceived;
         _deviceManager.ConnectionLost -= OnDeviceConnectionLost;

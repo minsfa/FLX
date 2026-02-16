@@ -188,9 +188,14 @@
                     </Grid>
                 </Border>
 
-                <Button Grid.Row="3" Content="🔍 연결 감지" Padding="10,6"
-                        Command="{Binding ScanForDevicesCommand}"
-                        Foreground="White" Background="#14427B"/>
+                <StackPanel Grid.Row="3" Orientation="Horizontal">
+                    <Button Content="🔍 연결 감지" Padding="10,6"
+                            Command="{Binding ScanForDevicesCommand}"
+                            Foreground="White" Background="#14427B"/>
+                    <Button Content="🧪 Emulator" Padding="10,6" Margin="6,0,0,0"
+                            Command="{Binding AddEmulatorDeviceCommand}"
+                            Foreground="White" Background="#6A1B9A"/>
+                </StackPanel>
             </Grid>
         </Border>
 
@@ -253,7 +258,6 @@
                                         <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}"/>
                                         <TextBlock Text="{Binding StudyId}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" Margin="0,2,0,0"/>
                                         <DockPanel Margin="0,4,0,0">
-                                            <TextBlock Text="{Binding DevicesSummary}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11"/>
                                             <Border DockPanel.Dock="Right" CornerRadius="4" Padding="6,2" Margin="8,0,0,0">
                                                 <Border.Style>
                                                     <Style TargetType="Border">
@@ -273,7 +277,78 @@
                                                 </Border.Style>
                                                 <TextBlock Text="{Binding State}" Foreground="White" FontSize="11"/>
                                             </Border>
+                                            <TextBlock Text="{Binding DevicesSummary}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" VerticalAlignment="Center"/>
                                         </DockPanel>
+                                        <!-- Recording info: visible when Recording or Done -->
+                                        <TextBlock Margin="0,4,0,0" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding State}" Value="Recording">
+                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding State}" Value="Done">
+                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                            <Run Text="{Binding RecordedSampleCount, Mode=OneWay}"/>
+                                            <Run Text=" samples"/>
+                                            <Run Text=" | "/>
+                                            <Run Text="{Binding CsvFilePath, Mode=OneWay}"/>
+                                        </TextBlock>
+                                        <!-- Action buttons -->
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,6,0,0">
+                                            <!-- Start: visible when Ready -->
+                                            <Button Content="&#x25B6; Start" Padding="8,4" Margin="0,0,4,0"
+                                                    Command="{Binding DataContext.StartStudyRecordingCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    CommandParameter="{Binding}"
+                                                    Foreground="White" Background="#2E7D32" BorderThickness="0">
+                                                <Button.Style>
+                                                    <Style TargetType="Button">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding State}" Value="Ready">
+                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Button.Style>
+                                            </Button>
+                                            <!-- Stop: visible when Recording -->
+                                            <Button Content="&#x25A0; Stop" Padding="8,4" Margin="0,0,4,0"
+                                                    Command="{Binding DataContext.StopStudyRecordingCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    CommandParameter="{Binding}"
+                                                    Foreground="White" Background="#E53935" BorderThickness="0">
+                                                <Button.Style>
+                                                    <Style TargetType="Button">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding State}" Value="Recording">
+                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Button.Style>
+                                            </Button>
+                                            <!-- Delete: visible when NOT Recording -->
+                                            <Button Content="&#x2715;" Padding="6,4" BorderThickness="0" Foreground="#999"
+                                                    Command="{Binding DataContext.DeleteStudyCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    CommandParameter="{Binding}">
+                                                <Button.Style>
+                                                    <Style TargetType="Button">
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding State}" Value="Recording">
+                                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Button.Style>
+                                            </Button>
+                                        </StackPanel>
                                     </StackPanel>
                                 </Border>
                             </DataTemplate>
