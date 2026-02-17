@@ -13,11 +13,15 @@ public partial class FluxCalculationWindow : Window
     private ScottPlot.Plottables.VerticalLine? _startLine;
     private ScottPlot.Plottables.VerticalLine? _endLine;
 
-    public FluxCalculationWindow(List<double> timeData, List<double> pressureData)
+    public FluxCalculationSnapshot? CalculationResult => _viewModel.LastCalculation;
+
+    public FluxCalculationWindow(List<double> timeData, List<double> pressureData,
+        string? csvFolderPath = null)
     {
         InitializeComponent();
 
         _viewModel = new FluxCalculationViewModel();
+        _viewModel.DefaultExportDirectory = csvFolderPath;
         DataContext = _viewModel;
 
         SetupChart();

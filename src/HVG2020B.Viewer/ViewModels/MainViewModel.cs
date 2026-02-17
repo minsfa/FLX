@@ -8,6 +8,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HVG2020B.Core;
 using HVG2020B.Core.Models;
+using HVG2020B.Core.Services;
 using HVG2020B.Driver;
 
 namespace HVG2020B.Viewer.ViewModels;
@@ -20,12 +21,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private readonly ObservableCollection<DeviceSeries> _deviceSeries = new();
     private readonly List<string> _seriesPalette = new()
     {
-        "#14427B",
-        "#1F77B4",
-        "#2CA02C",
-        "#FF7F0E",
-        "#D62728",
-        "#9467BD"
+        "#0076C0",
+        "#4CAF50",
+        "#FF9800",
+        "#9C27B0",
+        "#E53935",
+        "#00BCD4"
     };
     private int _seriesPaletteIndex;
 
@@ -38,6 +39,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     // Per-study recording (multiple simultaneous)
     private readonly List<StudyItem> _recordingStudies = new();
+
+    // Study persistence
+    private readonly string _logDir;
+    private readonly StudyStore _studyStore;
 
     private const int LiveIntervalMs = 100;
 
@@ -85,6 +90,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 ScanElapsedSeconds++;
             }
         };
+
+        // Study persistence
+        _logDir = Path.Combine(Directory.GetCurrentDirectory(), "logs");
+        _studyStore = new StudyStore(_logDir);
+        foreach (var record in _studyStore.LoadAll())
+        {
+            Studies.Add(new StudyItem(record));
+        }
+        RefreshFluxResultsDashboard();
     }
 
     #region Observable Properties
@@ -153,6 +167,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
     /// </summary>
     [ObservableProperty]
     private bool _useLogScale = true;
+
+    [ObservableProperty]
+    private ObservableCollection<FluxAnalysisResult> _allFluxResults = new();
 
     #endregion
 
@@ -498,6 +515,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         };
 
         Studies.Insert(0, new StudyItem(metadata));
+        PersistStudies();
 
         IsNewStudyDialogOpen = false;
         NewStudyTitle = string.Empty;
@@ -520,9 +538,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         try
         {
-            var logDir = Path.Combine(Directory.GetCurrentDirectory(), "logs");
-            study.StartRecording(logDir);
+            study.StartRecording(_logDir);
             _recordingStudies.Add(study);
+            PersistStudies();
 
             if (CurrentState != ViewerState.Recording)
             {
@@ -547,6 +565,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         study.StopRecording();
         _recordingStudies.Remove(study);
+        PersistStudies();
 
         StatusMessage = $"Stopped '{study.Title}' - {study.RecordedSampleCount} samples";
 
@@ -568,7 +587,93 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         study.Dispose();
         Studies.Remove(study);
+        PersistStudies();
+        RefreshFluxResultsDashboard();
         StatusMessage = $"Study deleted: {study.StudyId}";
+    }
+
+    [RelayCommand]
+    private void AnalyzeStudy(object? parameter)
+    {
+        if (parameter is not StudyItem study) return;
+        if (study.State != StudyState.Done) return;
+        if (string.IsNullOrEmpty(study.CsvFilePath) || !File.Exists(study.CsvFilePath))
+        {
+            StatusMessage = $"CSV file not found for study '{study.Title}'";
+            return;
+        }
+
+        try
+        {
+            var parsed = StudyCsvParser.Parse(study.CsvFilePath);
+
+            if (parsed.DeviceIds.Count == 0)
+            {
+                StatusMessage = "No data found in study CSV";
+                return;
+            }
+
+            string selectedDeviceId;
+            if (parsed.DeviceIds.Count == 1)
+            {
+                selectedDeviceId = parsed.DeviceIds[0];
+            }
+            else
+            {
+                var dialog = new DeviceSelectionDialog(parsed.DeviceIds);
+                dialog.Owner = Application.Current.MainWindow;
+                if (dialog.ShowDialog() != true || dialog.SelectedDeviceId == null)
+                    return;
+                selectedDeviceId = dialog.SelectedDeviceId;
+            }
+
+            var (timeSeconds, pressureTorr) = StudyCsvParser.ExtractDeviceData(
+                parsed.RowsByDevice[selectedDeviceId]);
+
+            if (timeSeconds.Length < 2)
+            {
+                StatusMessage = $"Insufficient data for device {selectedDeviceId} ({timeSeconds.Length} points)";
+                return;
+            }
+
+            var csvFolderPath = Path.GetDirectoryName(study.CsvFilePath);
+            var fluxWindow = new FluxCalculationWindow(
+                new List<double>(timeSeconds), new List<double>(pressureTorr), csvFolderPath);
+            fluxWindow.Title = $"Flux Calculation - {study.Title} ({selectedDeviceId})";
+            fluxWindow.Owner = Application.Current.MainWindow;
+            fluxWindow.ShowDialog();
+
+            if (fluxWindow.CalculationResult is { } calc)
+            {
+                var analysisResult = new FluxAnalysisResult
+                {
+                    CalculatedAt = DateTimeOffset.Now,
+                    StudyTitle = study.Title,
+                    DeviceId = selectedDeviceId,
+                    MembraneArea = calc.MembraneArea,
+                    Temperature = calc.Temperature,
+                    FeedSidePressure = calc.FeedSidePressure,
+                    ChamberVolume = calc.ChamberVolume,
+                    StartTime = calc.StartTime,
+                    EndTime = calc.EndTime,
+                    Flux = calc.Flux,
+                    Permeance = calc.Permeance,
+                    PermeanceGpu = calc.PermeanceGpu,
+                    PressureChangeRate = calc.PressureChangeRate,
+                    RSquared = calc.RSquared,
+                    DataPointCount = calc.DataPointCount
+                };
+
+                study.AddAnalysisResult(analysisResult);
+                PersistStudies();
+                RefreshFluxResultsDashboard();
+                StatusMessage = $"Analysis saved: {study.Title} #{analysisResult.AnalysisId}";
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Analysis failed: {ex.Message}";
+        }
     }
 
     [RelayCommand]
@@ -588,25 +693,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _startTime = DateTime.Now;
         ElapsedTime = "00:00:00";
         DataUpdated?.Invoke();
-        OpenFluxCalculationCommand.NotifyCanExecuteChanged();
     }
-
-    /// <summary>
-    /// Opens the Flux Calculation window with current chart data.
-    /// </summary>
-    [RelayCommand(CanExecute = nameof(CanOpenFluxCalculation))]
-    private void OpenFluxCalculation()
-    {
-        // Create a copy of current data
-        var timeDataCopy = _timeData.ToList();
-        var pressureDataCopy = _pressureData.ToList();
-
-        var fluxWindow = new FluxCalculationWindow(timeDataCopy, pressureDataCopy);
-        fluxWindow.Owner = System.Windows.Application.Current.MainWindow;
-        fluxWindow.ShowDialog();
-    }
-
-    private bool CanOpenFluxCalculation() => _timeData.Count >= 2;
 
     #endregion
 
@@ -665,10 +752,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (SelectedDevice?.DeviceId == deviceId)
         {
             UpdateSelectedSeriesData(deviceId);
-            if (_timeData.Count == 2)
-            {
-                OpenFluxCalculationCommand.NotifyCanExecuteChanged();
-            }
         }
 
         // Per-study recording (multiple simultaneous)
@@ -791,6 +874,30 @@ public partial class MainViewModel : ObservableObject, IDisposable
         return $"STD-{now:yyyyMMdd}-{now:HHmmss}";
     }
 
+    private void PersistStudies()
+    {
+        try
+        {
+            _studyStore.SaveAll(Studies.Select(s => s.ToRecord()));
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Failed to save studies: {ex.Message}";
+        }
+    }
+
+    private void RefreshFluxResultsDashboard()
+    {
+        AllFluxResults.Clear();
+        foreach (var study in Studies)
+        {
+            foreach (var result in study.AnalysisResults)
+            {
+                AllFluxResults.Add(result);
+            }
+        }
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
@@ -811,6 +918,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
             recording.StopRecording();
         }
         _recordingStudies.Clear();
+
+        PersistStudies();
+
         foreach (var study in Studies)
         {
             study.Dispose();

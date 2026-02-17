@@ -33,7 +33,7 @@
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <TextBlock Text="Devices" Foreground="#14427B" FontWeight="SemiBold" FontSize="14" Margin="4,0,0,8"/>
+                <TextBlock Text="Devices" Foreground="{StaticResource PrimaryLightBrush}" FontWeight="SemiBold" FontSize="14" Margin="4,0,0,8"/>
 
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
                     <ItemsControl ItemsSource="{Binding Devices}">
@@ -57,10 +57,12 @@
                                             <TextBlock Grid.Column="0" FontSize="14" Margin="0,0,6,0" VerticalAlignment="Center">
                                                 <TextBlock.Style>
                                                     <Style TargetType="TextBlock">
-                                                        <Setter Property="Text" Value="🔴"/>
+                                                        <Setter Property="Text" Value="&#x25CF;"/>
+                                                        <Setter Property="Foreground" Value="{StaticResource DangerBrush}"/>
                                                         <Style.Triggers>
                                                             <DataTrigger Binding="{Binding IsConnected}" Value="True">
-                                                                <Setter Property="Text" Value="🟢"/>
+                                                                <Setter Property="Text" Value="&#x25CF;"/>
+                                                                <Setter Property="Foreground" Value="{StaticResource SuccessBrush}"/>
                                                             </DataTrigger>
                                                         </Style.Triggers>
                                                     </Style>
@@ -78,13 +80,13 @@
                                                    Margin="0,6,0,0"/>
 
                                         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
-                                            <ToggleButton Content="📈" Width="32" Height="28" Margin="0,0,6,0"
+                                            <ToggleButton Content="&#x2502;&#x2502;&#x2502;" FontSize="9" Width="32" Height="28" Margin="0,0,6,0"
                                                           IsChecked="{Binding IsVisibleOnChart, Mode=OneWay}"
                                                           Command="{Binding DataContext.ToggleGraphCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                           CommandParameter="{Binding}">
                                                 <ToggleButton.Style>
-                                                    <Style TargetType="ToggleButton">
-                                                        <Setter Property="Background" Value="#555555"/>
+                                                    <Style TargetType="ToggleButton" BasedOn="{StaticResource {x:Type ToggleButton}}">
+                                                        <Setter Property="Background" Value="{StaticResource DisabledBrush}"/>
                                                         <Setter Property="Foreground" Value="White"/>
                                                         <Style.Triggers>
                                                             <Trigger Property="IsChecked" Value="True">
@@ -94,7 +96,7 @@
                                                     </Style>
                                                 </ToggleButton.Style>
                                             </ToggleButton>
-                                            <Button Content="🗑" Width="32" Height="28"
+                                            <Button Content="&#x2715;" Width="32" Height="28" Foreground="{StaticResource TextSecondaryBrush}"
                                                     Command="{Binding DataContext.RemoveDeviceCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                     CommandParameter="{Binding}"/>
                                         </StackPanel>
@@ -133,7 +135,7 @@
                                 </Style>
                             </StackPanel.Style>
 
-                            <TextBlock Text="🔍 Scanning devices..." Foreground="{StaticResource TextBrush}" FontWeight="SemiBold"/>
+                            <TextBlock Text="Scanning devices..." Foreground="{StaticResource TextBrush}" FontWeight="SemiBold"/>
                             <TextBlock Text="{Binding ScanProgressText}" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,4,0,0"/>
                             <ProgressBar Height="8" Margin="0,8,0,0"
                                          Minimum="0" Maximum="1"
@@ -170,7 +172,7 @@
                                                     Command="{Binding DataContext.AddScannedDeviceCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                     CommandParameter="{Binding}">
                                                 <Button.Style>
-                                                    <Style TargetType="Button">
+                                                    <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
                                                         <Setter Property="IsEnabled" Value="True"/>
                                                         <Style.Triggers>
                                                             <DataTrigger Binding="{Binding IsAdded}" Value="True">
@@ -189,12 +191,12 @@
                 </Border>
 
                 <StackPanel Grid.Row="3" Orientation="Horizontal">
-                    <Button Content="🔍 연결 감지" Padding="10,6"
+                    <Button Content="Scan" Padding="10,6"
                             Command="{Binding ScanForDevicesCommand}"
-                            Foreground="White" Background="#14427B"/>
-                    <Button Content="🧪 Emulator" Padding="10,6" Margin="6,0,0,0"
+                            Foreground="White" Background="{StaticResource PrimaryBrush}"/>
+                    <Button Content="Emulator" Padding="10,6" Margin="6,0,0,0"
                             Command="{Binding AddEmulatorDeviceCommand}"
-                            Foreground="White" Background="#6A1B9A"/>
+                            Foreground="White" Background="{StaticResource EmulatorBrush}"/>
                 </StackPanel>
             </Grid>
         </Border>
@@ -209,7 +211,7 @@
                 </Grid.RowDefinitions>
 
                 <DockPanel Grid.Row="0" LastChildFill="False">
-                    <TextBlock Text="Studies" Foreground="#14427B" FontWeight="SemiBold" FontSize="14" Margin="4,0,0,8"/>
+                    <TextBlock Text="Studies" Foreground="{StaticResource PrimaryLightBrush}" FontWeight="SemiBold" FontSize="14" Margin="4,0,0,8"/>
                     <Button Content="+ New Study" Padding="8,4" Margin="0,0,4,8"
                             Command="{Binding OpenNewStudyDialogCommand}"
                             DockPanel.Dock="Right"/>
@@ -229,13 +231,13 @@
 
                     <StackPanel>
                         <TextBlock Text="Title" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4"/>
-                        <TextBox Text="{Binding NewStudyTitle, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8"/>
+                        <TextBox Text="{Binding NewStudyTitle, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource DarkTextBox}" Margin="0,0,0,8"/>
 
                         <TextBlock Text="Devices" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4"/>
                         <ItemsControl ItemsSource="{Binding NewStudyDeviceSelections}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <CheckBox Content="{Binding DeviceId}" IsChecked="{Binding IsSelected}" Margin="0,2,0,2"/>
+                                    <CheckBox Content="{Binding DeviceId}" IsChecked="{Binding IsSelected}" Style="{StaticResource DarkCheckBox}" Margin="0,2,0,2"/>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
@@ -261,16 +263,16 @@
                                             <Border DockPanel.Dock="Right" CornerRadius="4" Padding="6,2" Margin="8,0,0,0">
                                                 <Border.Style>
                                                     <Style TargetType="Border">
-                                                        <Setter Property="Background" Value="#616161"/>
+                                                        <Setter Property="Background" Value="{StaticResource DisconnectedBrush}"/>
                                                         <Style.Triggers>
                                                             <DataTrigger Binding="{Binding State}" Value="Ready">
-                                                                <Setter Property="Background" Value="#2E7D32"/>
+                                                                <Setter Property="Background" Value="{StaticResource ReadyBrush}"/>
                                                             </DataTrigger>
                                                             <DataTrigger Binding="{Binding State}" Value="Recording">
-                                                                <Setter Property="Background" Value="#F9A825"/>
+                                                                <Setter Property="Background" Value="{StaticResource RecordingBrush}"/>
                                                             </DataTrigger>
                                                             <DataTrigger Binding="{Binding State}" Value="Done">
-                                                                <Setter Property="Background" Value="#455A64"/>
+                                                                <Setter Property="Background" Value="{StaticResource DoneBrush}"/>
                                                             </DataTrigger>
                                                         </Style.Triggers>
                                                     </Style>
@@ -305,9 +307,9 @@
                                             <Button Content="&#x25B6; Start" Padding="8,4" Margin="0,0,4,0"
                                                     Command="{Binding DataContext.StartStudyRecordingCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                     CommandParameter="{Binding}"
-                                                    Foreground="White" Background="#2E7D32" BorderThickness="0">
+                                                    Foreground="White" Background="{StaticResource SuccessBrush}" BorderThickness="0">
                                                 <Button.Style>
-                                                    <Style TargetType="Button">
+                                                    <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
                                                         <Setter Property="Visibility" Value="Collapsed"/>
                                                         <Style.Triggers>
                                                             <DataTrigger Binding="{Binding State}" Value="Ready">
@@ -321,9 +323,9 @@
                                             <Button Content="&#x25A0; Stop" Padding="8,4" Margin="0,0,4,0"
                                                     Command="{Binding DataContext.StopStudyRecordingCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                     CommandParameter="{Binding}"
-                                                    Foreground="White" Background="#E53935" BorderThickness="0">
+                                                    Foreground="White" Background="{StaticResource DangerBrush}" BorderThickness="0">
                                                 <Button.Style>
-                                                    <Style TargetType="Button">
+                                                    <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
                                                         <Setter Property="Visibility" Value="Collapsed"/>
                                                         <Style.Triggers>
                                                             <DataTrigger Binding="{Binding State}" Value="Recording">
@@ -333,12 +335,28 @@
                                                     </Style>
                                                 </Button.Style>
                                             </Button>
+                                            <!-- Analyze: visible when Done -->
+                                            <Button Content="Analyze" Padding="8,4" Margin="0,0,4,0"
+                                                    Command="{Binding DataContext.AnalyzeStudyCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    CommandParameter="{Binding}"
+                                                    Foreground="White" Background="{StaticResource PrimaryBrush}" BorderThickness="0">
+                                                <Button.Style>
+                                                    <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding State}" Value="Done">
+                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Button.Style>
+                                            </Button>
                                             <!-- Delete: visible when NOT Recording -->
-                                            <Button Content="&#x2715;" Padding="6,4" BorderThickness="0" Foreground="#999"
+                                            <Button Content="&#x2715;" Padding="6,4" BorderThickness="0" Foreground="{StaticResource TextSecondaryBrush}"
                                                     Command="{Binding DataContext.DeleteStudyCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                     CommandParameter="{Binding}">
                                                 <Button.Style>
-                                                    <Style TargetType="Button">
+                                                    <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
                                                         <Setter Property="Visibility" Value="Visible"/>
                                                         <Style.Triggers>
                                                             <DataTrigger Binding="{Binding State}" Value="Recording">
@@ -362,7 +380,7 @@
         <TabControl Grid.Column="2" Margin="0">
             <TabControl.Resources>
                 <Style TargetType="TabItem">
-                    <Setter Property="Foreground" Value="#14427B"/>
+                    <Setter Property="Foreground" Value="{StaticResource PrimaryLightBrush}"/>
                     <Setter Property="Padding" Value="12,6"/>
                 </Style>
             </TabControl.Resources>
@@ -378,7 +396,7 @@
 
                     <!-- Header / Controls -->
                     <Border Grid.Row="0" Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="16" Margin="0,0,0,16">
-                        <TextBlock Text="Live View" Foreground="#14427B" FontSize="16" FontWeight="SemiBold"/>
+                        <TextBlock Text="Live View" Foreground="{StaticResource PrimaryLightBrush}" FontSize="16" FontWeight="SemiBold"/>
                     </Border>
 
                     <!-- Info Bar -->
@@ -413,12 +431,6 @@
                             <Button Grid.Column="3" Content="Clear"
                                     Command="{Binding ClearChartCommand}"
                                     Padding="16,8" Margin="0,0,8,0"/>
-
-                            <!-- Flux Calculation Button -->
-                            <Button Grid.Column="4" Content="Flux Calc"
-                                    Command="{Binding OpenFluxCalculationCommand}"
-                                    Padding="16,8"
-                                    ToolTip="Calculate Permeance &amp; Flux"/>
                         </Grid>
                     </Border>
 
@@ -459,13 +471,13 @@
                             <Border Grid.Column="0" CornerRadius="4" Padding="8,4" Margin="0,0,12,0">
                                 <Border.Style>
                                     <Style TargetType="Border">
-                                        <Setter Property="Background" Value="#666666"/>
+                                        <Setter Property="Background" Value="{StaticResource DisconnectedBrush}"/>
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding CurrentState}" Value="Live">
-                                                <Setter Property="Background" Value="#4CAF50"/>
+                                                <Setter Property="Background" Value="{StaticResource SuccessBrush}"/>
                                             </DataTrigger>
                                             <DataTrigger Binding="{Binding CurrentState}" Value="Recording">
-                                                <Setter Property="Background" Value="#E53935"/>
+                                                <Setter Property="Background" Value="{StaticResource RecordingBrush}"/>
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
@@ -495,10 +507,56 @@
                 </Grid>
             </TabItem>
 
-            <TabItem Header="Analysis">
-                <Grid>
-                    <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="20" Margin="0">
-                        <TextBlock Text="Analysis (coming soon)" Foreground="#14427B" FontSize="14" FontWeight="SemiBold"/>
+            <TabItem Header="Flux Results">
+                <Grid Margin="0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Header -->
+                    <Border Grid.Row="0" Background="{StaticResource SurfaceBrush}"
+                            CornerRadius="8" Padding="16" Margin="0,0,0,16">
+                        <TextBlock Text="Flux Results Dashboard"
+                                   Foreground="{StaticResource PrimaryLightBrush}" FontSize="16" FontWeight="SemiBold"/>
+                    </Border>
+
+                    <!-- Results Table -->
+                    <Border Grid.Row="1" Background="{StaticResource SurfaceBrush}"
+                            CornerRadius="8" Padding="8">
+                        <DataGrid ItemsSource="{Binding AllFluxResults}"
+                                  AutoGenerateColumns="False"
+                                  IsReadOnly="True"
+                                  CanUserSortColumns="True"
+                                  GridLinesVisibility="Horizontal"
+                                  HeadersVisibility="Column"
+                                  Background="Transparent"
+                                  RowBackground="{StaticResource BackgroundBrush}"
+                                  AlternatingRowBackground="{StaticResource SurfaceBrush}"
+                                  Foreground="{StaticResource TextBrush}"
+                                  BorderThickness="0">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Date"
+                                    Binding="{Binding CalculatedAt, StringFormat=yyyy-MM-dd HH:mm}"
+                                    Width="130"/>
+                                <DataGridTextColumn Header="Study"
+                                    Binding="{Binding StudyTitle}" Width="120"/>
+                                <DataGridTextColumn Header="Device"
+                                    Binding="{Binding DeviceId}" Width="100"/>
+                                <DataGridTextColumn Header="Flux (mol/m2s)"
+                                    Binding="{Binding Flux, StringFormat=E3}" Width="120"/>
+                                <DataGridTextColumn Header="Permeance (GPU)"
+                                    Binding="{Binding PermeanceGpu, StringFormat=F2}" Width="120"/>
+                                <DataGridTextColumn Header="R2"
+                                    Binding="{Binding RSquared, StringFormat=F4}" Width="80"/>
+                                <DataGridTextColumn Header="Points"
+                                    Binding="{Binding DataPointCount}" Width="60"/>
+                                <DataGridTextColumn Header="Start (s)"
+                                    Binding="{Binding StartTime, StringFormat=F1}" Width="70"/>
+                                <DataGridTextColumn Header="End (s)"
+                                    Binding="{Binding EndTime, StringFormat=F1}" Width="70"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
                     </Border>
                 </Grid>
             </TabItem>

@@ -266,3 +266,10 @@ launchSettings.json
 # HVG Logger output
 logs/
 *.csv
+
+# Claude Code / bkit local config
+.claude/
+.bkit/
+docs/.bkit-memory.json
+docs/.pdca-snapshots/
+docs/.pdca-status.json

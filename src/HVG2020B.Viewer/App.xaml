@@ -9,22 +9,170 @@
             <converters:InverseBoolConverter x:Key="InverseBoolConverter"/>
             <converters:Rs232VisibilityConverter x:Key="Rs232VisibilityConverter"/>
 
-            <!-- Colors -->
-            <Color x:Key="PrimaryColor">#2196F3</Color>
-            <Color x:Key="AccentColor">#FF5722</Color>
+            <!-- ═══════════════════════════════════════════════
+                 Color System (Teledyne Hastings branding base)
+                 ═══════════════════════════════════════════════ -->
+
+            <!-- Brand Colors -->
+            <Color x:Key="PrimaryColor">#0076C0</Color>
+            <Color x:Key="PrimaryLightColor">#4A9FD9</Color>
+            <Color x:Key="PrimaryHoverColor">#005A9E</Color>
+            <Color x:Key="AccentColor">#DA3B01</Color>
+            <Color x:Key="AccentHoverColor">#B83200</Color>
+
+            <!-- Surface Colors -->
             <Color x:Key="BackgroundColor">#1E1E1E</Color>
             <Color x:Key="SurfaceColor">#2D2D2D</Color>
+            <Color x:Key="SurfaceLightColor">#383838</Color>
+
+            <!-- Text Colors -->
             <Color x:Key="TextColor">#FFFFFF</Color>
             <Color x:Key="TextSecondaryColor">#B0B0B0</Color>
+            <Color x:Key="TextDisabledColor">#888888</Color>
 
+            <!-- Semantic Colors -->
+            <Color x:Key="SuccessColor">#4CAF50</Color>
+            <Color x:Key="DangerColor">#E53935</Color>
+            <Color x:Key="WarningColor">#FFC107</Color>
+
+            <!-- State Colors -->
+            <Color x:Key="ReadyColor">#4CAF50</Color>
+            <Color x:Key="RecordingColor">#E53935</Color>
+            <Color x:Key="DoneColor">#607D8B</Color>
+            <Color x:Key="DisconnectedColor">#666666</Color>
+            <Color x:Key="DisabledColor">#555555</Color>
+            <Color x:Key="EmulatorColor">#6A1B9A</Color>
+
+            <!-- ═══════════════════════════════════════════════
+                 Brushes
+                 ═══════════════════════════════════════════════ -->
+
+            <!-- Brand Brushes -->
             <SolidColorBrush x:Key="PrimaryBrush" Color="{StaticResource PrimaryColor}"/>
+            <SolidColorBrush x:Key="PrimaryLightBrush" Color="{StaticResource PrimaryLightColor}"/>
+            <SolidColorBrush x:Key="PrimaryHoverBrush" Color="{StaticResource PrimaryHoverColor}"/>
             <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}"/>
+            <SolidColorBrush x:Key="AccentHoverBrush" Color="{StaticResource AccentHoverColor}"/>
+
+            <!-- Surface Brushes -->
             <SolidColorBrush x:Key="BackgroundBrush" Color="{StaticResource BackgroundColor}"/>
             <SolidColorBrush x:Key="SurfaceBrush" Color="{StaticResource SurfaceColor}"/>
+            <SolidColorBrush x:Key="SurfaceLightBrush" Color="{StaticResource SurfaceLightColor}"/>
+
+            <!-- Text Brushes -->
             <SolidColorBrush x:Key="TextBrush" Color="{StaticResource TextColor}"/>
             <SolidColorBrush x:Key="TextSecondaryBrush" Color="{StaticResource TextSecondaryColor}"/>
+            <SolidColorBrush x:Key="TextDisabledBrush" Color="{StaticResource TextDisabledColor}"/>
 
-            <!-- Button Style -->
+            <!-- Semantic Brushes -->
+            <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource SuccessColor}"/>
+            <SolidColorBrush x:Key="DangerBrush" Color="{StaticResource DangerColor}"/>
+            <SolidColorBrush x:Key="WarningBrush" Color="{StaticResource WarningColor}"/>
+
+            <!-- State Brushes -->
+            <SolidColorBrush x:Key="ReadyBrush" Color="{StaticResource ReadyColor}"/>
+            <SolidColorBrush x:Key="RecordingBrush" Color="{StaticResource RecordingColor}"/>
+            <SolidColorBrush x:Key="DoneBrush" Color="{StaticResource DoneColor}"/>
+            <SolidColorBrush x:Key="DisconnectedBrush" Color="{StaticResource DisconnectedColor}"/>
+            <SolidColorBrush x:Key="DisabledBrush" Color="{StaticResource DisabledColor}"/>
+            <SolidColorBrush x:Key="EmulatorBrush" Color="{StaticResource EmulatorColor}"/>
+
+            <!-- ═══════════════════════════════════════════════
+                 Global Default Styles (dark theme for all controls)
+                 ═══════════════════════════════════════════════ -->
+
+            <!-- Default Button (all unstyled buttons get dark treatment) -->
+            <Style TargetType="Button">
+                <Setter Property="Background" Value="{StaticResource SurfaceLightBrush}"/>
+                <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Padding" Value="8,4"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}"
+                                    CornerRadius="4"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+                <Style.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                        <Setter Property="Background">
+                            <Setter.Value><SolidColorBrush Color="#4A4A4A"/></Setter.Value>
+                        </Setter>
+                    </Trigger>
+                    <Trigger Property="IsEnabled" Value="False">
+                        <Setter Property="Foreground" Value="{StaticResource TextDisabledBrush}"/>
+                        <Setter Property="Background" Value="{StaticResource DisabledBrush}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+
+            <!-- Default ToggleButton -->
+            <Style TargetType="ToggleButton">
+                <Setter Property="Background" Value="{StaticResource SurfaceLightBrush}"/>
+                <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Padding" Value="4"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ToggleButton">
+                            <Border Background="{TemplateBinding Background}"
+                                    CornerRadius="4"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+                <Style.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                        <Setter Property="Background">
+                            <Setter.Value><SolidColorBrush Color="#4A4A4A"/></Setter.Value>
+                        </Setter>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+
+            <!-- Default DataGrid column header -->
+            <Style TargetType="DataGridColumnHeader">
+                <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+                <Setter Property="Foreground" Value="{StaticResource PrimaryLightBrush}"/>
+                <Setter Property="Padding" Value="8,6"/>
+                <Setter Property="BorderBrush" Value="{StaticResource DisabledBrush}"/>
+                <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+            </Style>
+
+            <!-- Default DataGrid cell -->
+            <Style TargetType="DataGridCell">
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+                <Style.Triggers>
+                    <Trigger Property="IsSelected" Value="True">
+                        <Setter Property="Background" Value="{StaticResource PrimaryHoverBrush}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+
+            <!-- Default DataGrid row -->
+            <Style TargetType="DataGridRow">
+                <Style.Triggers>
+                    <Trigger Property="IsSelected" Value="True">
+                        <Setter Property="Background" Value="{StaticResource PrimaryHoverBrush}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+
+            <!-- ═══════════════════════════════════════════════
+                 Named Button Styles
+                 ═══════════════════════════════════════════════ -->
+
             <Style x:Key="PrimaryButton" TargetType="Button">
                 <Setter Property="Background" Value="{StaticResource PrimaryBrush}"/>
                 <Setter Property="Foreground" Value="White"/>
@@ -44,11 +192,11 @@
                 </Setter>
                 <Style.Triggers>
                     <Trigger Property="IsMouseOver" Value="True">
-                        <Setter Property="Background" Value="#1976D2"/>
+                        <Setter Property="Background" Value="{StaticResource PrimaryHoverBrush}"/>
                     </Trigger>
                     <Trigger Property="IsEnabled" Value="False">
-                        <Setter Property="Background" Value="#555555"/>
-                        <Setter Property="Foreground" Value="#888888"/>
+                        <Setter Property="Background" Value="{StaticResource DisabledBrush}"/>
+                        <Setter Property="Foreground" Value="{StaticResource TextDisabledBrush}"/>
                     </Trigger>
                 </Style.Triggers>
             </Style>
@@ -57,13 +205,78 @@
                 <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
                 <Style.Triggers>
                     <Trigger Property="IsMouseOver" Value="True">
-                        <Setter Property="Background" Value="#E64A19"/>
+                        <Setter Property="Background" Value="{StaticResource AccentHoverBrush}"/>
                     </Trigger>
                     <Trigger Property="IsEnabled" Value="False">
-                        <Setter Property="Background" Value="#555555"/>
-                        <Setter Property="Foreground" Value="#888888"/>
+                        <Setter Property="Background" Value="{StaticResource DisabledBrush}"/>
+                        <Setter Property="Foreground" Value="{StaticResource TextDisabledBrush}"/>
                     </Trigger>
                 </Style.Triggers>
+            </Style>
+
+            <Style x:Key="SuccessButton" TargetType="Button" BasedOn="{StaticResource PrimaryButton}">
+                <Setter Property="Background" Value="{StaticResource SuccessBrush}"/>
+                <Style.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                        <Setter Property="Background">
+                            <Setter.Value>
+                                <SolidColorBrush Color="#388E3C"/>
+                            </Setter.Value>
+                        </Setter>
+                    </Trigger>
+                    <Trigger Property="IsEnabled" Value="False">
+                        <Setter Property="Background" Value="{StaticResource DisabledBrush}"/>
+                        <Setter Property="Foreground" Value="{StaticResource TextDisabledBrush}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+
+            <!-- ═══════════════════════════════════════════════
+                 Dark Theme Control Styles
+                 ═══════════════════════════════════════════════ -->
+
+            <!-- Dark TextBox -->
+            <Style x:Key="DarkTextBox" TargetType="TextBox">
+                <Setter Property="Background" Value="{StaticResource SurfaceLightBrush}"/>
+                <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+                <Setter Property="BorderBrush" Value="{StaticResource DisabledBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Padding" Value="6,4"/>
+                <Setter Property="CaretBrush" Value="{StaticResource TextBrush}"/>
+                <Setter Property="SelectionBrush" Value="{StaticResource PrimaryBrush}"/>
+                <Style.Triggers>
+                    <Trigger Property="IsFocused" Value="True">
+                        <Setter Property="BorderBrush" Value="{StaticResource PrimaryBrush}"/>
+                    </Trigger>
+                    <Trigger Property="IsMouseOver" Value="True">
+                        <Setter Property="BorderBrush" Value="{StaticResource PrimaryLightBrush}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+
+            <!-- Dark GroupBox -->
+            <Style x:Key="DarkGroupBox" TargetType="GroupBox">
+                <Setter Property="Foreground" Value="{StaticResource PrimaryLightBrush}"/>
+                <Setter Property="BorderBrush" Value="{StaticResource DisabledBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Padding" Value="8"/>
+                <Setter Property="Margin" Value="0,0,0,10"/>
+            </Style>
+
+            <!-- Dark GroupBox with highlight background (for Results) -->
+            <Style x:Key="DarkGroupBoxHighlight" TargetType="GroupBox" BasedOn="{StaticResource DarkGroupBox}">
+                <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+                <Setter Property="BorderBrush" Value="{StaticResource PrimaryBrush}"/>
+            </Style>
+
+            <!-- Dark Slider -->
+            <Style x:Key="DarkSlider" TargetType="Slider">
+                <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}"/>
+            </Style>
+
+            <!-- Dark CheckBox -->
+            <Style x:Key="DarkCheckBox" TargetType="CheckBox">
+                <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
             </Style>
         </ResourceDictionary>
     </Application.Resources>

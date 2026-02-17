@@ -7,6 +7,12 @@ using Microsoft.Win32;
 
 namespace HVG2020B.Viewer.ViewModels;
 
+public record FluxCalculationSnapshot(
+    double MembraneArea, double Temperature, double FeedSidePressure,
+    double ChamberVolume, double StartTime, double EndTime,
+    double Flux, double Permeance, double PermeanceGpu,
+    double PressureChangeRate, double? RSquared, int DataPointCount);
+
 public partial class FluxCalculationViewModel : ObservableObject
 {
     private readonly FluxCalculator _calculator;
@@ -16,6 +22,9 @@ public partial class FluxCalculationViewModel : ObservableObject
     {
         _calculator = new FluxCalculator();
     }
+
+    public string? DefaultExportDirectory { get; set; }
+    public FluxCalculationSnapshot? LastCalculation { get; private set; }
 
     #region Input Parameters
 
@@ -191,6 +200,11 @@ public partial class FluxCalculationViewModel : ObservableObject
             DataPointCount = result.DataPointCount;
             HasResult = true;
 
+            LastCalculation = new FluxCalculationSnapshot(
+                MembraneArea, Temperature, FeedSidePressure, ChamberVolume,
+                StartTime, EndTime, Flux, Permeance, PermeanceGpu,
+                PressureChangeRate, RSquared, DataPointCount);
+
             StatusMessage = $"Calculated ({result.DataPointCount} points, R²={result.RSquared:F4})";
             RangeChanged?.Invoke();
         }
@@ -212,7 +226,8 @@ public partial class FluxCalculationViewModel : ObservableObject
         {
             Filter = "CSV files (*.csv)|*.csv",
             DefaultExt = ".csv",
-            FileName = $"flux_calculation_{DateTime.Now:yyyyMMdd_HHmmss}.csv"
+            FileName = $"flux_calculation_{DateTime.Now:yyyyMMdd_HHmmss}.csv",
+            InitialDirectory = DefaultExportDirectory ?? ""
         };
 
         if (dialog.ShowDialog() == true)

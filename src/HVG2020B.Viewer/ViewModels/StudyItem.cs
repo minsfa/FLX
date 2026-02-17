@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -17,6 +18,22 @@ public partial class StudyItem : ObservableObject, IDisposable
         Metadata = metadata;
     }
 
+    public StudyItem(StudyRecord record)
+    {
+        Metadata = record.Metadata;
+        CsvFilePath = record.CsvFilePath;
+        RecordedSampleCount = record.RecordedSampleCount;
+        AnalysisResults = new ObservableCollection<FluxAnalysisResult>(
+            record.AnalysisResults);
+
+        if (!string.IsNullOrEmpty(record.CsvFilePath) && File.Exists(record.CsvFilePath))
+            State = StudyState.Done;
+        else if (record.StudyState == "Done")
+            State = StudyState.Done;
+        else
+            State = StudyState.Ready;
+    }
+
     public StudyMetadata Metadata { get; }
 
     public string StudyId => Metadata.StudyId;
@@ -33,6 +50,27 @@ public partial class StudyItem : ObservableObject, IDisposable
 
     [ObservableProperty]
     private int _recordedSampleCount;
+
+    public ObservableCollection<FluxAnalysisResult> AnalysisResults { get; } = new();
+
+    public StudyRecord ToRecord()
+    {
+        return new StudyRecord
+        {
+            Metadata = Metadata,
+            CsvFilePath = CsvFilePath,
+            StudyState = State == StudyState.Recording ? "Done" : State.ToString(),
+            RecordedSampleCount = RecordedSampleCount,
+            AnalysisResults = AnalysisResults.ToList()
+        };
+    }
+
+    public void AddAnalysisResult(FluxAnalysisResult result)
+    {
+        result.AnalysisId = Metadata.LatestAnalysisId + 1;
+        Metadata.LatestAnalysisId = result.AnalysisId;
+        AnalysisResults.Insert(0, result);
+    }
 
     public void StartRecording(string logDir)
     {
