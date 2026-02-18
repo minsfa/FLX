@@ -5,12 +5,20 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:scottplot="clr-namespace:ScottPlot.WPF;assembly=ScottPlot.WPF"
         xmlns:vm="clr-namespace:HVG2020B.Viewer.ViewModels"
+        xmlns:converters="clr-namespace:HVG2020B.Viewer.Converters"
         mc:Ignorable="d"
         Title="HVG-2020B Viewer"
         Height="700" Width="1100"
         MinHeight="500" MinWidth="900"
         Background="{StaticResource BackgroundBrush}"
         WindowStartupLocation="CenterScreen">
+
+    <Window.Resources>
+        <converters:FileExistsToVisibilityConverter x:Key="FileExistsToVisibility"/>
+        <converters:FileNotExistsToVisibilityConverter x:Key="FileNotExistsToVisibility"/>
+        <converters:NullToVisibilityConverter x:Key="NullToVisibility"/>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVisibility"/>
+    </Window.Resources>
 
     <Window.DataContext>
         <vm:MainViewModel/>
@@ -207,9 +215,12 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
 
+                <!-- Header: Title + New Study -->
                 <DockPanel Grid.Row="0" LastChildFill="False">
                     <TextBlock Text="Studies" Foreground="{StaticResource PrimaryLightBrush}" FontWeight="SemiBold" FontSize="14" Margin="4,0,0,8"/>
                     <Button Content="+ New Study" Padding="8,4" Margin="0,0,4,8"
@@ -217,7 +228,62 @@
                             DockPanel.Dock="Right"/>
                 </DockPanel>
 
-                <Border Grid.Row="1" Background="{StaticResource BackgroundBrush}" CornerRadius="6" Padding="10" Margin="0,0,0,8">
+                <!-- Search Box -->
+                <Grid Grid.Row="1" Margin="0,0,0,8">
+                    <TextBox Text="{Binding StudySearchText, UpdateSourceTrigger=PropertyChanged}"
+                             Style="{StaticResource DarkTextBox}" x:Name="StudySearchBox"/>
+                    <TextBlock Text="Search studies..." IsHitTestVisible="False"
+                               Foreground="{StaticResource DisabledBrush}" Margin="8,6,0,0" FontSize="12">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Text, ElementName=StudySearchBox}" Value="">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </Grid>
+
+                <!-- Top-level action toolbar -->
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
+                    <Button Content="Analyze" Padding="8,4" Margin="0,0,4,0"
+                            Command="{Binding AnalyzeSelectedStudyCommand}"
+                            Foreground="White" Background="{StaticResource PrimaryBrush}" BorderThickness="0">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                <Setter Property="IsEnabled" Value="False"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SelectedStudy.State}" Value="Done">
+                                        <Setter Property="IsEnabled" Value="True"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                    <Button Content="Open Folder" Padding="8,4" Margin="0,0,4,0"
+                            Command="{Binding OpenStudyFolderCommand}">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                <Setter Property="IsEnabled" Value="False"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SelectedStudy.State}" Value="Done">
+                                        <Setter Property="IsEnabled" Value="True"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                    <Button Content="&#x2715; Delete" Padding="8,4" Margin="0,0,0,0"
+                            Command="{Binding DeleteSelectedStudyCommand}"
+                            Foreground="{StaticResource TextSecondaryBrush}" BorderThickness="0"
+                            IsEnabled="{Binding HasSelectedStudy}"/>
+                </StackPanel>
+
+                <!-- New Study Dialog -->
+                <Border Grid.Row="3" Background="{StaticResource BackgroundBrush}" CornerRadius="6" Padding="10" Margin="0,0,0,8">
                     <Border.Style>
                         <Style TargetType="Border">
                             <Setter Property="Visibility" Value="Collapsed"/>
@@ -230,10 +296,23 @@
                     </Border.Style>
 
                     <StackPanel>
-                        <TextBlock Text="Title" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4"/>
+                        <TextBlock Text="Id" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4"/>
+                        <TextBox Text="{Binding NewStudyId, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource DarkTextBox}" Margin="0,0,0,8"/>
+
+                        <TextBlock Text="Study" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4"/>
                         <TextBox Text="{Binding NewStudyTitle, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource DarkTextBox}" Margin="0,0,0,8"/>
 
-                        <TextBlock Text="Devices" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4"/>
+                        <DockPanel Margin="0,0,0,4">
+                            <TextBlock Text="Devices" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <Button Content="All" Padding="6,2" Margin="4,0,0,0" FontSize="11"
+                                        Command="{Binding SelectAllDevicesCommand}"
+                                        Foreground="{StaticResource TextBrush}" Background="{StaticResource SurfaceLightBrush}" BorderThickness="0"/>
+                                <Button Content="None" Padding="6,2" Margin="4,0,0,0" FontSize="11"
+                                        Command="{Binding DeselectAllDevicesCommand}"
+                                        Foreground="{StaticResource TextBrush}" Background="{StaticResource SurfaceLightBrush}" BorderThickness="0"/>
+                            </StackPanel>
+                        </DockPanel>
                         <ItemsControl ItemsSource="{Binding NewStudyDeviceSelections}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
@@ -251,128 +330,119 @@
                     </StackPanel>
                 </Border>
 
-                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
-                    <ItemsControl ItemsSource="{Binding Studies}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Background="{StaticResource BackgroundBrush}" CornerRadius="6" Padding="10" Margin="0,0,0,8">
-                                    <StackPanel>
-                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}"/>
-                                        <TextBlock Text="{Binding StudyId}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" Margin="0,2,0,0"/>
-                                        <DockPanel Margin="0,4,0,0">
-                                            <Border DockPanel.Dock="Right" CornerRadius="4" Padding="6,2" Margin="8,0,0,0">
-                                                <Border.Style>
-                                                    <Style TargetType="Border">
-                                                        <Setter Property="Background" Value="{StaticResource DisconnectedBrush}"/>
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding State}" Value="Ready">
-                                                                <Setter Property="Background" Value="{StaticResource ReadyBrush}"/>
-                                                            </DataTrigger>
-                                                            <DataTrigger Binding="{Binding State}" Value="Recording">
-                                                                <Setter Property="Background" Value="{StaticResource RecordingBrush}"/>
-                                                            </DataTrigger>
-                                                            <DataTrigger Binding="{Binding State}" Value="Done">
-                                                                <Setter Property="Background" Value="{StaticResource DoneBrush}"/>
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </Border.Style>
-                                                <TextBlock Text="{Binding State}" Foreground="White" FontSize="11"/>
-                                            </Border>
-                                            <TextBlock Text="{Binding DevicesSummary}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" VerticalAlignment="Center"/>
-                                        </DockPanel>
-                                        <!-- Recording info: visible when Recording or Done -->
-                                        <TextBlock Margin="0,4,0,0" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}">
-                                            <TextBlock.Style>
-                                                <Style TargetType="TextBlock">
-                                                    <Setter Property="Visibility" Value="Collapsed"/>
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding State}" Value="Recording">
-                                                            <Setter Property="Visibility" Value="Visible"/>
-                                                        </DataTrigger>
-                                                        <DataTrigger Binding="{Binding State}" Value="Done">
-                                                            <Setter Property="Visibility" Value="Visible"/>
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </TextBlock.Style>
-                                            <Run Text="{Binding RecordedSampleCount, Mode=OneWay}"/>
-                                            <Run Text=" samples"/>
-                                            <Run Text=" | "/>
-                                            <Run Text="{Binding CsvFilePath, Mode=OneWay}"/>
-                                        </TextBlock>
-                                        <!-- Action buttons -->
-                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,6,0,0">
-                                            <!-- Start: visible when Ready -->
-                                            <Button Content="&#x25B6; Start" Padding="8,4" Margin="0,0,4,0"
-                                                    Command="{Binding DataContext.StartStudyRecordingCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                    CommandParameter="{Binding}"
-                                                    Foreground="White" Background="{StaticResource SuccessBrush}" BorderThickness="0">
-                                                <Button.Style>
-                                                    <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-                                                        <Setter Property="Visibility" Value="Collapsed"/>
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding State}" Value="Ready">
-                                                                <Setter Property="Visibility" Value="Visible"/>
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </Button.Style>
-                                            </Button>
-                                            <!-- Stop: visible when Recording -->
-                                            <Button Content="&#x25A0; Stop" Padding="8,4" Margin="0,0,4,0"
-                                                    Command="{Binding DataContext.StopStudyRecordingCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                    CommandParameter="{Binding}"
-                                                    Foreground="White" Background="{StaticResource DangerBrush}" BorderThickness="0">
-                                                <Button.Style>
-                                                    <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-                                                        <Setter Property="Visibility" Value="Collapsed"/>
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding State}" Value="Recording">
-                                                                <Setter Property="Visibility" Value="Visible"/>
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </Button.Style>
-                                            </Button>
-                                            <!-- Analyze: visible when Done -->
-                                            <Button Content="Analyze" Padding="8,4" Margin="0,0,4,0"
-                                                    Command="{Binding DataContext.AnalyzeStudyCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                    CommandParameter="{Binding}"
-                                                    Foreground="White" Background="{StaticResource PrimaryBrush}" BorderThickness="0">
-                                                <Button.Style>
-                                                    <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-                                                        <Setter Property="Visibility" Value="Collapsed"/>
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding State}" Value="Done">
-                                                                <Setter Property="Visibility" Value="Visible"/>
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </Button.Style>
-                                            </Button>
-                                            <!-- Delete: visible when NOT Recording -->
-                                            <Button Content="&#x2715;" Padding="6,4" BorderThickness="0" Foreground="{StaticResource TextSecondaryBrush}"
-                                                    Command="{Binding DataContext.DeleteStudyCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                    CommandParameter="{Binding}">
-                                                <Button.Style>
-                                                    <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                <!-- Study List (selectable) -->
+                <ListBox Grid.Row="4" ItemsSource="{Binding FilteredStudies}"
+                         SelectedItem="{Binding SelectedStudy}"
+                         Background="Transparent" BorderThickness="0"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListBoxItem">
+                                        <Border x:Name="Bd" CornerRadius="6" Padding="10" Margin="0,0,0,8"
+                                                Background="{StaticResource BackgroundBrush}" BorderThickness="2" BorderBrush="Transparent">
+                                            <ContentPresenter/>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsSelected" Value="True">
+                                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource PrimaryBrush}"/>
+                                            </Trigger>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource SurfaceLightBrush}"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel>
+                                <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}"/>
+                                <TextBlock Text="{Binding StudyId}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" Margin="0,2,0,0"/>
+                                <TextBlock Text="&#x26A0; Files missing" Foreground="{StaticResource DangerBrush}" FontSize="10"
+                                           Visibility="{Binding IsBroken, Converter={StaticResource BoolToVisibility}}" Margin="0,2,0,0"/>
+                                <DockPanel Margin="0,4,0,0">
+                                    <Border DockPanel.Dock="Right" CornerRadius="4" Padding="6,2" Margin="8,0,0,0">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Background" Value="{StaticResource DisconnectedBrush}"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding State}" Value="Ready">
+                                                        <Setter Property="Background" Value="{StaticResource ReadyBrush}"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding State}" Value="Recording">
+                                                        <Setter Property="Background" Value="{StaticResource RecordingBrush}"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding State}" Value="Done">
+                                                        <Setter Property="Background" Value="{StaticResource DoneBrush}"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <TextBlock Text="{Binding State}" Foreground="White" FontSize="11"/>
+                                    </Border>
+                                    <TextBlock Text="{Binding DevicesSummary}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" VerticalAlignment="Center"/>
+                                </DockPanel>
+                                <!-- Recording info: visible when Recording or Done -->
+                                <TextBlock Margin="0,4,0,0" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding State}" Value="Recording">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding State}" Value="Done">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                    <Run Text="{Binding RecordedSampleCount, Mode=OneWay}"/>
+                                    <Run Text=" samples"/>
+                                </TextBlock>
+                                <!-- Start/Stop buttons remain per-card -->
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,6,0,0">
+                                    <!-- Start: visible when Ready -->
+                                    <Button Content="&#x25B6; Start" Padding="8,4" Margin="0,0,4,0"
+                                            Command="{Binding DataContext.StartStudyRecordingCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            CommandParameter="{Binding}"
+                                            Foreground="White" Background="{StaticResource SuccessBrush}" BorderThickness="0">
+                                        <Button.Style>
+                                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding State}" Value="Ready">
                                                         <Setter Property="Visibility" Value="Visible"/>
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding State}" Value="Recording">
-                                                                <Setter Property="Visibility" Value="Collapsed"/>
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </Button.Style>
-                                            </Button>
-                                        </StackPanel>
-                                    </StackPanel>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </ScrollViewer>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
+                                    <!-- Stop: visible when Recording -->
+                                    <Button Content="&#x25A0; Stop" Padding="8,4" Margin="0,0,4,0"
+                                            Command="{Binding DataContext.StopStudyRecordingCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            CommandParameter="{Binding}"
+                                            Foreground="White" Background="{StaticResource DangerBrush}" BorderThickness="0">
+                                        <Button.Style>
+                                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding State}" Value="Recording">
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
+                                </StackPanel>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
             </Grid>
         </Border>
 
@@ -521,7 +591,7 @@
                                    Foreground="{StaticResource PrimaryLightBrush}" FontSize="16" FontWeight="SemiBold"/>
                     </Border>
 
-                    <!-- Results Table -->
+                    <!-- DataGrid -->
                     <Border Grid.Row="1" Background="{StaticResource SurfaceBrush}"
                             CornerRadius="8" Padding="8">
                         <DataGrid ItemsSource="{Binding AllFluxResults}"
@@ -535,26 +605,27 @@
                                   AlternatingRowBackground="{StaticResource SurfaceBrush}"
                                   Foreground="{StaticResource TextBrush}"
                                   BorderThickness="0">
+                            <DataGrid.InputBindings>
+                                <MouseBinding MouseAction="LeftDoubleClick"
+                                              Command="{Binding OpenFluxResultStudyCommand}"
+                                              CommandParameter="{Binding SelectedFluxResult}"/>
+                            </DataGrid.InputBindings>
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="Date"
                                     Binding="{Binding CalculatedAt, StringFormat=yyyy-MM-dd HH:mm}"
                                     Width="130"/>
+                                <DataGridTextColumn Header="Id"
+                                    Binding="{Binding MeasurementId}" Width="80"/>
                                 <DataGridTextColumn Header="Study"
-                                    Binding="{Binding StudyTitle}" Width="120"/>
+                                    Binding="{Binding StudyTitle}" Width="110"/>
                                 <DataGridTextColumn Header="Device"
-                                    Binding="{Binding DeviceId}" Width="100"/>
-                                <DataGridTextColumn Header="Flux (mol/m2s)"
-                                    Binding="{Binding Flux, StringFormat=E3}" Width="120"/>
+                                    Binding="{Binding DeviceId}" Width="90"/>
+                                <DataGridTextColumn Header="Flux (mol/m²s)"
+                                    Binding="{Binding Flux, StringFormat=E3}" Width="110"/>
                                 <DataGridTextColumn Header="Permeance (GPU)"
-                                    Binding="{Binding PermeanceGpu, StringFormat=F2}" Width="120"/>
-                                <DataGridTextColumn Header="R2"
-                                    Binding="{Binding RSquared, StringFormat=F4}" Width="80"/>
-                                <DataGridTextColumn Header="Points"
-                                    Binding="{Binding DataPointCount}" Width="60"/>
-                                <DataGridTextColumn Header="Start (s)"
-                                    Binding="{Binding StartTime, StringFormat=F1}" Width="70"/>
-                                <DataGridTextColumn Header="End (s)"
-                                    Binding="{Binding EndTime, StringFormat=F1}" Width="70"/>
+                                    Binding="{Binding PermeanceGpu, StringFormat=F2}" Width="110"/>
+                                <DataGridTextColumn Header="R²"
+                                    Binding="{Binding RSquared, StringFormat=F4}" Width="70"/>
                             </DataGrid.Columns>
                         </DataGrid>
                     </Border>

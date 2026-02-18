@@ -10,6 +10,7 @@ using HVG2020B.Core;
 using HVG2020B.Core.Models;
 using HVG2020B.Core.Services;
 using HVG2020B.Driver;
+using HVG2020B.Viewer.Services;
 
 namespace HVG2020B.Viewer.ViewModels;
 
@@ -54,9 +55,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private readonly DispatcherTimer _scanTimer;
     private CancellationTokenSource? _scanCts;
 
-    // Ring buffer for chart (last N seconds at 10Hz = 600 points = 60 seconds)
-    private const int MaxDataPoints = 600;
-
     // Minimum pressure value for log scale (avoids log(0) issues)
     private const double MinPressureForLog = 1e-12;
 
@@ -98,6 +96,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             Studies.Add(new StudyItem(record));
         }
+        ApplyStudyFilter();
+        if (FilteredStudies.Count > 0)
+            SelectedStudy = FilteredStudies[0];
         RefreshFluxResultsDashboard();
     }
 
@@ -119,10 +120,23 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private ObservableCollection<StudyItem> _studies = new();
 
     [ObservableProperty]
+    private ObservableCollection<StudyItem> _filteredStudies = new();
+
+    [ObservableProperty]
+    private string _studySearchText = string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSelectedStudy))]
+    private StudyItem? _selectedStudy;
+
+    [ObservableProperty]
     private bool _isNewStudyDialogOpen;
 
     [ObservableProperty]
     private string _newStudyTitle = string.Empty;
+
+    [ObservableProperty]
+    private string _newStudyId = string.Empty;
 
     [ObservableProperty]
     private ObservableCollection<NewStudyDeviceOption> _newStudyDeviceSelections = new();
@@ -171,6 +185,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private ObservableCollection<FluxAnalysisResult> _allFluxResults = new();
 
+    [ObservableProperty]
+    private FluxAnalysisResult? _selectedFluxResult;
+
     #endregion
 
     #region Computed Properties
@@ -179,6 +196,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public bool IsLive => CurrentState == ViewerState.Live;
     public bool IsRecording => CurrentState == ViewerState.Recording;
     public bool IsConnected => CurrentState != ViewerState.Disconnected;
+    public bool HasSelectedStudy => SelectedStudy != null;
 
     public ObservableCollection<DeviceSeries> DeviceSeries => _deviceSeries;
 
@@ -479,19 +497,32 @@ public partial class MainViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
+    private void SelectAllDevices()
+    {
+        foreach (var d in NewStudyDeviceSelections) d.IsSelected = true;
+    }
+
+    [RelayCommand]
+    private void DeselectAllDevices()
+    {
+        foreach (var d in NewStudyDeviceSelections) d.IsSelected = false;
+    }
+
+    [RelayCommand]
     private void CancelNewStudy()
     {
         IsNewStudyDialogOpen = false;
         NewStudyTitle = string.Empty;
+        NewStudyId = string.Empty;
         NewStudyDeviceSelections.Clear();
     }
 
     [RelayCommand]
     private void CreateNewStudy()
     {
-        if (string.IsNullOrWhiteSpace(NewStudyTitle))
+        if (string.IsNullOrWhiteSpace(NewStudyId))
         {
-            StatusMessage = "Please enter a study title";
+            StatusMessage = "Please enter an Id";
             return;
         }
 
@@ -510,15 +541,20 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             StudyId = GenerateStudyId(),
             Title = NewStudyTitle.Trim(),
+            MeasurementId = NewStudyId.Trim(),
             CreatedAt = DateTimeOffset.Now,
             DeviceIds = selectedDevices
         };
 
-        Studies.Insert(0, new StudyItem(metadata));
+        var newStudy = new StudyItem(metadata);
+        Studies.Insert(0, newStudy);
+        ApplyStudyFilter();
+        SelectedStudy = newStudy;
         PersistStudies();
 
         IsNewStudyDialogOpen = false;
         NewStudyTitle = string.Empty;
+        NewStudyId = string.Empty;
         NewStudyDeviceSelections.Clear();
 
         StatusMessage = $"Study created: {metadata.StudyId}";
@@ -585,11 +621,45 @@ public partial class MainViewModel : ObservableObject, IDisposable
             StopStudyRecording(study);
         }
 
+        // Ask user whether to also delete files from disk
+        var folderPath = study.StudyFolderPath;
+        bool deleteFiles = false;
+        if (!string.IsNullOrEmpty(folderPath) && Directory.Exists(folderPath))
+        {
+            var result = MessageBox.Show(
+                $"Also delete study files from disk?\n\n{folderPath}",
+                "Delete Study",
+                MessageBoxButton.YesNoCancel,
+                MessageBoxImage.Question);
+
+            if (result == MessageBoxResult.Cancel)
+                return;
+
+            deleteFiles = result == MessageBoxResult.Yes;
+        }
+
         study.Dispose();
         Studies.Remove(study);
+        ApplyStudyFilter();
         PersistStudies();
         RefreshFluxResultsDashboard();
-        StatusMessage = $"Study deleted: {study.StudyId}";
+
+        if (deleteFiles && !string.IsNullOrEmpty(folderPath))
+        {
+            try
+            {
+                Directory.Delete(folderPath, recursive: true);
+                StatusMessage = $"Study deleted (files removed): {study.StudyId}";
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = $"Study deleted, but folder removal failed: {ex.Message}";
+            }
+        }
+        else
+        {
+            StatusMessage = $"Study deleted: {study.StudyId}";
+        }
     }
 
     [RelayCommand]
@@ -636,20 +706,36 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 return;
             }
 
-            var csvFolderPath = Path.GetDirectoryName(study.CsvFilePath);
+            var studyFolder = study.StudyFolderPath ?? Path.GetDirectoryName(study.CsvFilePath);
             var fluxWindow = new FluxCalculationWindow(
-                new List<double>(timeSeconds), new List<double>(pressureTorr), csvFolderPath);
+                new List<double>(timeSeconds), new List<double>(pressureTorr), studyFolder);
             fluxWindow.Title = $"Flux Calculation - {study.Title} ({selectedDeviceId})";
             fluxWindow.Owner = Application.Current.MainWindow;
             fluxWindow.ShowDialog();
 
             if (fluxWindow.CalculationResult is { } calc)
             {
+                // Capture screenshot before closing window
+                string? screenshotPath = null;
+                if (studyFolder != null)
+                {
+                    try
+                    {
+                        screenshotPath = ScreenshotCapture.CaptureWindow(
+                            fluxWindow, studyFolder,
+                            $"{study.StudyId}_analysis_{study.Metadata.LatestAnalysisId + 1}");
+                    }
+                    catch { /* screenshot failure is non-fatal */ }
+                }
+
                 var analysisResult = new FluxAnalysisResult
                 {
                     CalculatedAt = DateTimeOffset.Now,
+                    StudyId = study.StudyId,
                     StudyTitle = study.Title,
+                    MeasurementId = study.MeasurementId,
                     DeviceId = selectedDeviceId,
+                    ScreenshotPath = screenshotPath,
                     MembraneArea = calc.MembraneArea,
                     Temperature = calc.Temperature,
                     FeedSidePressure = calc.FeedSidePressure,
@@ -667,12 +753,67 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 study.AddAnalysisResult(analysisResult);
                 PersistStudies();
                 RefreshFluxResultsDashboard();
-                StatusMessage = $"Analysis saved: {study.Title} #{analysisResult.AnalysisId}";
+
+                // Auto-export Excel to study folder
+                if (studyFolder != null && study.CsvFilePath != null)
+                {
+                    try
+                    {
+                        var excelPath = Path.Combine(studyFolder,
+                            $"{SanitizeFolderName(study.Title)}.xlsx");
+                        StudyExcelExporter.Export(excelPath, study.CsvFilePath,
+                            study.AnalysisResults, study.Metadata);
+                        StatusMessage = $"Analysis #{analysisResult.AnalysisId} saved + Excel exported";
+                    }
+                    catch (Exception excelEx)
+                    {
+                        StatusMessage = $"Analysis saved, Excel export failed: {excelEx.Message}";
+                    }
+                }
+                else
+                {
+                    StatusMessage = $"Analysis saved: {study.Title} #{analysisResult.AnalysisId}";
+                }
             }
         }
         catch (Exception ex)
         {
             StatusMessage = $"Analysis failed: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private void AnalyzeSelectedStudy()
+    {
+        if (SelectedStudy != null)
+            AnalyzeStudy(SelectedStudy);
+    }
+
+    [RelayCommand]
+    private void DeleteSelectedStudy()
+    {
+        if (SelectedStudy != null)
+            DeleteStudy(SelectedStudy);
+    }
+
+    [RelayCommand]
+    private void OpenStudyFolder()
+    {
+        if (SelectedStudy?.StudyFolderPath == null) return;
+        var folderPath = SelectedStudy.StudyFolderPath;
+        if (!Directory.Exists(folderPath))
+        {
+            StatusMessage = $"Folder not found: {folderPath}";
+            return;
+        }
+
+        try
+        {
+            System.Diagnostics.Process.Start("explorer.exe", folderPath);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Failed to open folder: {ex.Message}";
         }
     }
 
@@ -741,12 +882,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
         series.TimeData.Add(timeSeconds);
         var pressure = Math.Max(reading.PressureTorr, MinPressureForLog);
         series.PressureData.Add(pressure);
-
-        while (series.TimeData.Count > MaxDataPoints)
-        {
-            series.TimeData.RemoveAt(0);
-            series.PressureData.RemoveAt(0);
-        }
 
         // Update selected series buffer for existing chart binding
         if (SelectedDevice?.DeviceId == deviceId)
@@ -874,6 +1009,33 @@ public partial class MainViewModel : ObservableObject, IDisposable
         return $"STD-{now:yyyyMMdd}-{now:HHmmss}";
     }
 
+    private static string SanitizeFolderName(string name)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var sanitized = new string(name.Select(c => invalid.Contains(c) ? '_' : c).ToArray());
+        return string.IsNullOrWhiteSpace(sanitized) ? "Untitled" : sanitized.Trim();
+    }
+
+    partial void OnStudySearchTextChanged(string value)
+    {
+        ApplyStudyFilter();
+    }
+
+    private void ApplyStudyFilter()
+    {
+        var search = StudySearchText?.Trim() ?? "";
+        FilteredStudies.Clear();
+        foreach (var study in Studies)
+        {
+            if (string.IsNullOrEmpty(search)
+                || study.DisplayName.Contains(search, StringComparison.OrdinalIgnoreCase)
+                || study.StudyId.Contains(search, StringComparison.OrdinalIgnoreCase))
+            {
+                FilteredStudies.Add(study);
+            }
+        }
+    }
+
     private void PersistStudies()
     {
         try
@@ -896,6 +1058,25 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 AllFluxResults.Add(result);
             }
         }
+    }
+
+    [RelayCommand]
+    private void OpenFluxResultStudy(FluxAnalysisResult? result)
+    {
+        if (result == null || string.IsNullOrEmpty(result.StudyId))
+        {
+            StatusMessage = "Cannot navigate: no Study ID associated with this result";
+            return;
+        }
+
+        var study = Studies.FirstOrDefault(s => s.StudyId == result.StudyId);
+        if (study == null)
+        {
+            StatusMessage = $"Study not found: {result.StudyId}";
+            return;
+        }
+
+        AnalyzeStudy(study);
     }
 
     public void Dispose()

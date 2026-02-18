@@ -4,8 +4,11 @@ public class FluxAnalysisResult
 {
     public int AnalysisId { get; set; }
     public DateTimeOffset CalculatedAt { get; set; }
+    public string StudyId { get; set; } = "";
     public string StudyTitle { get; set; } = "";
+    public string MeasurementId { get; set; } = "";
     public string DeviceId { get; set; } = "";
+    public string? ScreenshotPath { get; set; }
 
     // Input parameters snapshot
     public double MembraneArea { get; set; }

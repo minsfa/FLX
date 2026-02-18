@@ -6,6 +6,8 @@ public class StudyMetadata
 
     public string Title { get; set; } = "";
 
+    public string MeasurementId { get; set; } = "";
+
     public DateTimeOffset CreatedAt { get; set; }
 
     public DateTimeOffset? StartTime { get; set; }

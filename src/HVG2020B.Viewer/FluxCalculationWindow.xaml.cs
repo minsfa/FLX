@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
 using HVG2020B.Viewer.ViewModels;
 using ScottPlot;
 
@@ -110,11 +111,12 @@ public partial class FluxCalculationWindow : Window
         if (!isShiftPressed && !isCtrlPressed)
             return;
 
-        // Get mouse position relative to the chart
+        // Convert mouse position to data coordinates with DPI scaling
         var position = e.GetPosition(PressureChart);
-
-        // Convert pixel coordinates to data coordinates
-        var pixel = new Pixel((float)position.X, (float)position.Y);
+        var dpi = VisualTreeHelper.GetDpi(PressureChart);
+        var pixel = new Pixel(
+            (float)(position.X * dpi.DpiScaleX),
+            (float)(position.Y * dpi.DpiScaleY));
         var coordinates = PressureChart.Plot.GetCoordinates(pixel);
 
         // Get the time value (X coordinate) and snap to 0.1s increments

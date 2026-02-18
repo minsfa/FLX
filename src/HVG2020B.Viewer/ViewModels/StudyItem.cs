@@ -26,10 +26,17 @@ public partial class StudyItem : ObservableObject, IDisposable
         AnalysisResults = new ObservableCollection<FluxAnalysisResult>(
             record.AnalysisResults);
 
+        // Restore StudyFolderPath from CsvFilePath
+        if (!string.IsNullOrEmpty(record.CsvFilePath))
+            StudyFolderPath = Path.GetDirectoryName(record.CsvFilePath);
+
         if (!string.IsNullOrEmpty(record.CsvFilePath) && File.Exists(record.CsvFilePath))
             State = StudyState.Done;
         else if (record.StudyState == "Done")
+        {
             State = StudyState.Done;
+            IsBroken = true; // CSV path recorded but file missing
+        }
         else
             State = StudyState.Ready;
     }
@@ -39,6 +46,12 @@ public partial class StudyItem : ObservableObject, IDisposable
     public string StudyId => Metadata.StudyId;
 
     public string Title => Metadata.Title;
+
+    public string MeasurementId => Metadata.MeasurementId;
+
+    public string DisplayName => string.IsNullOrEmpty(MeasurementId)
+        ? Title
+        : $"{MeasurementId} / {Title}";
 
     public string DevicesSummary => string.Join(", ", Metadata.DeviceIds);
 
@@ -50,6 +63,9 @@ public partial class StudyItem : ObservableObject, IDisposable
 
     [ObservableProperty]
     private int _recordedSampleCount;
+
+    [ObservableProperty]
+    private bool _isBroken;
 
     public ObservableCollection<FluxAnalysisResult> AnalysisResults { get; } = new();
 
@@ -72,14 +88,25 @@ public partial class StudyItem : ObservableObject, IDisposable
         AnalysisResults.Insert(0, result);
     }
 
+    /// <summary>
+    /// The per-study folder path: logs/{Title}/
+    /// </summary>
+    public string? StudyFolderPath { get; private set; }
+
     public void StartRecording(string logDir)
     {
         if (State != StudyState.Ready) return;
 
-        if (!Directory.Exists(logDir))
-            Directory.CreateDirectory(logDir);
+        // Create per-study folder: logs/{date}_{id}_{study}/ (Gasmon pattern)
+        var date = DateTime.Now.ToString("yyyyMMdd");
+        var parts = new[] { date, SanitizeFolderName(Metadata.MeasurementId), SanitizeFolderName(Metadata.Title) }
+            .Where(p => !string.IsNullOrWhiteSpace(p));
+        var folderName = string.Join("_", parts);
+        StudyFolderPath = Path.Combine(logDir, folderName);
+        if (!Directory.Exists(StudyFolderPath))
+            Directory.CreateDirectory(StudyFolderPath);
 
-        CsvFilePath = Path.Combine(logDir, $"{StudyId}.csv");
+        CsvFilePath = Path.Combine(StudyFolderPath, $"{StudyId}.csv");
         _csvWriter = new StreamWriter(CsvFilePath, false, System.Text.Encoding.UTF8);
         _csvWriter.WriteLine("timestamp_iso,device_id,pressure_torr");
 
@@ -134,6 +161,13 @@ public partial class StudyItem : ObservableObject, IDisposable
         _csvWriter?.Flush();
         _csvWriter?.Dispose();
         _csvWriter = null;
+    }
+
+    private static string SanitizeFolderName(string name)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var sanitized = new string(name.Select(c => invalid.Contains(c) ? '_' : c).ToArray());
+        return string.IsNullOrWhiteSpace(sanitized) ? "Untitled" : sanitized.Trim();
     }
 }
 
