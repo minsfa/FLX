@@ -709,7 +709,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             var studyFolder = study.StudyFolderPath ?? Path.GetDirectoryName(study.CsvFilePath);
             var fluxWindow = new FluxCalculationWindow(
                 new List<double>(timeSeconds), new List<double>(pressureTorr), studyFolder);
-            fluxWindow.Title = $"Flux Calculation - {study.Title} ({selectedDeviceId})";
+            fluxWindow.Title = $"Calculation - {study.Title} ({selectedDeviceId})";
             fluxWindow.Owner = Application.Current.MainWindow;
             fluxWindow.ShowDialog();
 
@@ -736,6 +736,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
                     MeasurementId = study.MeasurementId,
                     DeviceId = selectedDeviceId,
                     ScreenshotPath = screenshotPath,
+                    Mode = calc.Mode,
                     MembraneArea = calc.MembraneArea,
                     Temperature = calc.Temperature,
                     FeedSidePressure = calc.FeedSidePressure,
@@ -747,7 +748,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
                     PermeanceGpu = calc.PermeanceGpu,
                     PressureChangeRate = calc.PressureChangeRate,
                     RSquared = calc.RSquared,
-                    DataPointCount = calc.DataPointCount
+                    DataPointCount = calc.DataPointCount,
+                    LeakRateTorrLps = calc.LeakRateTorrLps,
+                    LeakRatePaM3ps = calc.LeakRatePaM3ps,
+                    LeakRateMbarLps = calc.LeakRateMbarLps,
+                    ConfigMemo = calc.ConfigMemo
                 };
 
                 study.AddAnalysisResult(analysisResult);

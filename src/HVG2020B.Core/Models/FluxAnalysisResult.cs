@@ -20,11 +20,20 @@ public class FluxAnalysisResult
     public double StartTime { get; set; }
     public double EndTime { get; set; }
 
-    // Results
+    // Mode
+    public CalculationMode Mode { get; set; } = CalculationMode.Permeation;
+
+    // Results — Permeation
     public double Flux { get; set; }
     public double Permeance { get; set; }
     public double PermeanceGpu { get; set; }
     public double PressureChangeRate { get; set; }
     public double? RSquared { get; set; }
     public int DataPointCount { get; set; }
+
+    // Results — Leak Rate
+    public double LeakRateTorrLps { get; set; }
+    public double LeakRatePaM3ps { get; set; }
+    public double LeakRateMbarLps { get; set; }
+    public string ConfigMemo { get; set; } = "";
 }

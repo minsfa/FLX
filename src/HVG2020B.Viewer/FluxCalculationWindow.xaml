@@ -4,11 +4,17 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:scottplot="clr-namespace:ScottPlot.WPF;assembly=ScottPlot.WPF"
+        xmlns:converters="clr-namespace:HVG2020B.Viewer.Converters"
         mc:Ignorable="d"
         Title="Permeance &amp; Flux Calculation"
-        Height="600" Width="900"
+        Height="650" Width="900"
         Background="{StaticResource BackgroundBrush}"
         WindowStartupLocation="CenterOwner">
+
+    <Window.Resources>
+        <converters:BoolToVisibilityConverter x:Key="BoolToVis"/>
+        <converters:InverseBoolConverter x:Key="InverseBool"/>
+    </Window.Resources>
 
     <Grid Margin="10">
         <Grid.ColumnDefinitions>
@@ -26,14 +32,30 @@
             <!-- Scrollable content -->
             <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
                 <StackPanel>
+
+                    <!-- Mode Toggle -->
+                    <GroupBox Style="{StaticResource DarkGroupBox}" Margin="0,0,0,4">
+                        <StackPanel Orientation="Horizontal">
+                            <RadioButton Content="Permeation" GroupName="CalcMode"
+                                         IsChecked="{Binding IsPermeationMode}"
+                                         Foreground="{StaticResource TextBrush}" Margin="0,0,16,0"
+                                         VerticalAlignment="Center"/>
+                            <RadioButton Content="Leak Rate" GroupName="CalcMode"
+                                         IsChecked="{Binding IsLeakRateMode}"
+                                         Foreground="{StaticResource TextBrush}"
+                                         VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </GroupBox>
+
                     <!-- Input Parameters -->
                     <GroupBox Header="Input Parameters" Style="{StaticResource DarkGroupBox}">
                         <Grid>
                             <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/> <!-- Chamber Volume (common) -->
+                                <RowDefinition Height="Auto"/> <!-- Membrane Area (Perm) -->
+                                <RowDefinition Height="Auto"/> <!-- Temperature (Perm) -->
+                                <RowDefinition Height="Auto"/> <!-- Feed Pressure (Perm) -->
+                                <RowDefinition Height="Auto"/> <!-- Config Memo (Leak) -->
                             </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
@@ -41,21 +63,43 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
 
-                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Membrane Area:" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" Margin="0,5"/>
-                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding MembraneArea, StringFormat=E2}" Style="{StaticResource DarkTextBox}" Margin="5" Width="100" HorizontalAlignment="Left"/>
-                            <TextBlock Grid.Row="0" Grid.Column="2" Text="m&#178;" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                            <!-- Row 0: Chamber Volume — always visible -->
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Chamber Volume:" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" Margin="0,5"/>
+                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding ChamberVolume, StringFormat=E2}" Style="{StaticResource DarkTextBox}" Margin="5" Width="100" HorizontalAlignment="Left"/>
+                            <TextBlock Grid.Row="0" Grid.Column="2" Text="m&#179;" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
 
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Temperature:" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" Margin="0,5"/>
-                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding Temperature, StringFormat=F2}" Style="{StaticResource DarkTextBox}" Margin="5" Width="100" HorizontalAlignment="Left"/>
-                            <TextBlock Grid.Row="1" Grid.Column="2" Text="K" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                            <!-- Row 1: Membrane Area — Permeation only -->
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Membrane Area:" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" Margin="0,5"
+                                       Visibility="{Binding PermeationVisibility}"/>
+                            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding MembraneArea, StringFormat=E2}" Style="{StaticResource DarkTextBox}" Margin="5" Width="100" HorizontalAlignment="Left"
+                                     Visibility="{Binding PermeationVisibility}"/>
+                            <TextBlock Grid.Row="1" Grid.Column="2" Text="m&#178;" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"
+                                       Visibility="{Binding PermeationVisibility}"/>
 
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Feed Side Pressure:" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" Margin="0,5"/>
-                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding FeedSidePressure, StringFormat=F0}" Style="{StaticResource DarkTextBox}" Margin="5" Width="100" HorizontalAlignment="Left"/>
-                            <TextBlock Grid.Row="2" Grid.Column="2" Text="Pa" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                            <!-- Row 2: Temperature — Permeation only -->
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Temperature:" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" Margin="0,5"
+                                       Visibility="{Binding PermeationVisibility}"/>
+                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding Temperature, StringFormat=F2}" Style="{StaticResource DarkTextBox}" Margin="5" Width="100" HorizontalAlignment="Left"
+                                     Visibility="{Binding PermeationVisibility}"/>
+                            <TextBlock Grid.Row="2" Grid.Column="2" Text="K" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"
+                                       Visibility="{Binding PermeationVisibility}"/>
 
-                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Chamber Volume:" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" Margin="0,5"/>
-                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding ChamberVolume, StringFormat=E2}" Style="{StaticResource DarkTextBox}" Margin="5" Width="100" HorizontalAlignment="Left"/>
-                            <TextBlock Grid.Row="3" Grid.Column="2" Text="m&#179;" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                            <!-- Row 3: Feed Side Pressure — Permeation only -->
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Feed Side Pressure:" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" Margin="0,5"
+                                       Visibility="{Binding PermeationVisibility}"/>
+                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding FeedSidePressure, StringFormat=F0}" Style="{StaticResource DarkTextBox}" Margin="5" Width="100" HorizontalAlignment="Left"
+                                     Visibility="{Binding PermeationVisibility}"/>
+                            <TextBlock Grid.Row="3" Grid.Column="2" Text="Pa" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"
+                                       Visibility="{Binding PermeationVisibility}"/>
+
+                            <!-- Row 4: Config Memo — Leak Rate only -->
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Config:" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" Margin="0,5"
+                                       Visibility="{Binding LeakRateVisibility}"/>
+                            <TextBox Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2"
+                                     Text="{Binding ConfigMemo, UpdateSourceTrigger=PropertyChanged}"
+                                     Style="{StaticResource DarkTextBox}" Margin="5"
+                                     Visibility="{Binding LeakRateVisibility}"
+                                     ToolTip="Chamber configuration memo (e.g., System only, + Reactor #1)"/>
                         </Grid>
                     </GroupBox>
 
@@ -116,29 +160,34 @@
                             </Grid.ColumnDefinitions>
 
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Start Pressure:" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" Margin="0,3"/>
-                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding StartPressure, StringFormat=G4}" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" FontWeight="Bold"/>
-                            <TextBlock Grid.Row="0" Grid.Column="2" Text="Pa" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding DisplayStartPressure, StringFormat=G4}" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" FontWeight="Bold"/>
+                            <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding PressureUnitLabel}" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="End Pressure:" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" Margin="0,3"/>
-                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding EndPressure, StringFormat=G4}" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" FontWeight="Bold"/>
-                            <TextBlock Grid.Row="1" Grid.Column="2" Text="Pa" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding DisplayEndPressure, StringFormat=G4}" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" FontWeight="Bold"/>
+                            <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding PressureUnitLabel}" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="Change Rate:" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,3"/>
-                            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding PressureChangeRate, StringFormat=G4}" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Row="2" Grid.Column="2" Text="Pa/s" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding DisplayPressureChangeRate, StringFormat=G4}" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Row="2" Grid.Column="2" Text="{Binding PressureRateUnitLabel}" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="Linear Slope:" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,3"/>
-                            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding LinearizationSlope, StringFormat=G4}" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Row="3" Grid.Column="2" Text="Pa/s" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding DisplayLinearizationSlope, StringFormat=G4}" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Row="3" Grid.Column="2" Text="{Binding PressureRateUnitLabel}" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
 
-                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Pressure Drop:" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" Margin="0,3"/>
-                            <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding PressureDrop, StringFormat=G4}" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" FontWeight="Bold"/>
-                            <TextBlock Grid.Row="4" Grid.Column="2" Text="Pa" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                            <!-- Pressure Drop — Permeation only -->
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Pressure Drop:" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" Margin="0,3"
+                                       Visibility="{Binding PermeationVisibility}"/>
+                            <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding PressureDrop, StringFormat=G4}" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" FontWeight="Bold"
+                                       Visibility="{Binding PermeationVisibility}"/>
+                            <TextBlock Grid.Row="4" Grid.Column="2" Text="Pa" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"
+                                       Visibility="{Binding PermeationVisibility}"/>
                         </Grid>
                     </GroupBox>
 
-                    <!-- Results -->
-                    <GroupBox Header="Results" Style="{StaticResource DarkGroupBoxHighlight}">
+                    <!-- Results: Permeation -->
+                    <GroupBox Header="Results" Style="{StaticResource DarkGroupBoxHighlight}"
+                              Visibility="{Binding PermeationVisibility}">
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
@@ -167,6 +216,63 @@
                             <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding RSquared, StringFormat=F4}" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center"/>
                         </Grid>
                     </GroupBox>
+
+                    <!-- Results: Leak Rate -->
+                    <GroupBox Header="Results" Style="{StaticResource DarkGroupBoxHighlight}"
+                              Visibility="{Binding LeakRateVisibility}">
+                        <StackPanel>
+                            <!-- Primary: Q in Torr·L/s -->
+                            <Grid Margin="0,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Leak Rate:" FontWeight="Bold" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Text="{Binding LeakRateTorrLps, StringFormat=E2}"
+                                           FontWeight="Bold" FontSize="18" Foreground="{StaticResource PrimaryLightBrush}" VerticalAlignment="Center" Margin="8,0"/>
+                                <TextBlock Grid.Column="2" Text="Torr&#183;L/s" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                            </Grid>
+
+                            <!-- Secondary: Pa·m³/s -->
+                            <Grid Margin="0,0,0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Width="70"/>
+                                <TextBlock Grid.Column="1" Text="{Binding LeakRatePaM3ps, StringFormat=E2}"
+                                           Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" Margin="8,0"/>
+                                <TextBlock Grid.Column="2" Text="Pa&#183;m&#179;/s" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                            </Grid>
+
+                            <!-- Secondary: mbar·L/s -->
+                            <Grid Margin="0,0,0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Width="70"/>
+                                <TextBlock Grid.Column="1" Text="{Binding LeakRateMbarLps, StringFormat=E2}"
+                                           Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" Margin="8,0"/>
+                                <TextBlock Grid.Column="2" Text="mbar&#183;L/s" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                            </Grid>
+
+                            <!-- R² -->
+                            <Grid Margin="0,4,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="R&#178;:" FontWeight="Bold" Foreground="{StaticResource TextBrush}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Text="{Binding RSquared, StringFormat=F4}"
+                                           Foreground="{StaticResource TextBrush}" VerticalAlignment="Center" Margin="8,0"/>
+                            </Grid>
+                        </StackPanel>
+                    </GroupBox>
+
                 </StackPanel>
             </ScrollViewer>
 

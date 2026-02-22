@@ -9,8 +9,10 @@ namespace HVG2020B.Viewer.Services;
 public static class StudyExcelExporter
 {
     /// <summary>
-    /// Exports study data to an Excel file with two tabs:
-    /// Tab 1 = Logging Data (raw CSV data), Tab 2 = Analysis Results.
+    /// Exports study data to an Excel file with tabs:
+    /// Tab 1 = Logging Data (raw CSV data)
+    /// Tab 2 = Permeation Analysis Results (if any)
+    /// Tab 3 = Leak Rate Results (if any)
     /// </summary>
     public static void Export(string excelPath, string csvFilePath,
         IReadOnlyList<FluxAnalysisResult> analysisResults, StudyMetadata metadata)
@@ -20,8 +22,21 @@ public static class StudyExcelExporter
         // Tab 1: Logging Data
         WriteLoggingDataSheet(workbook, csvFilePath, metadata);
 
-        // Tab 2: Analysis Results
-        WriteAnalysisSheet(workbook, analysisResults, metadata);
+        // Tab 2: Permeation Analysis Results
+        var permeationResults = analysisResults
+            .Where(r => r.Mode == CalculationMode.Permeation).ToList();
+        if (permeationResults.Count > 0)
+            WritePermeationSheet(workbook, permeationResults);
+
+        // Tab 3: Leak Rate Results
+        var leakRateResults = analysisResults
+            .Where(r => r.Mode == CalculationMode.LeakRate).ToList();
+        if (leakRateResults.Count > 0)
+            WriteLeakRateSheet(workbook, leakRateResults);
+
+        // Fallback: if no results at all, still write an empty analysis sheet
+        if (permeationResults.Count == 0 && leakRateResults.Count == 0)
+            WritePermeationSheet(workbook, permeationResults);
 
         workbook.SaveAs(excelPath);
     }
@@ -75,8 +90,8 @@ public static class StudyExcelExporter
         ws.Columns().AdjustToContents();
     }
 
-    private static void WriteAnalysisSheet(XLWorkbook workbook,
-        IReadOnlyList<FluxAnalysisResult> results, StudyMetadata metadata)
+    private static void WritePermeationSheet(XLWorkbook workbook,
+        IReadOnlyList<FluxAnalysisResult> results)
     {
         var ws = workbook.Worksheets.Add("Analysis Results");
 
@@ -129,6 +144,55 @@ public static class StudyExcelExporter
             ws.Cell(row, 11).Style.NumberFormat.Format = "0.0000E+00";
             ws.Cell(row, 12).Style.NumberFormat.Format = "0.00";
             ws.Cell(row, 14).Style.NumberFormat.Format = "0.0000";
+        }
+
+        ws.Columns().AdjustToContents();
+    }
+
+    private static void WriteLeakRateSheet(XLWorkbook workbook,
+        IReadOnlyList<FluxAnalysisResult> results)
+    {
+        var ws = workbook.Worksheets.Add("Leak Rate Results");
+
+        var headers = new[]
+        {
+            "Analysis #", "Date", "Device", "Config",
+            "Chamber Vol (m³)", "Start Time (s)", "End Time (s)",
+            "Q (Torr·L/s)", "Q (Pa·m³/s)", "Q (mbar·L/s)",
+            "Pressure Rate (Pa/s)", "R²", "Data Points"
+        };
+
+        for (int col = 0; col < headers.Length; col++)
+        {
+            ws.Cell(1, col + 1).Value = headers[col];
+        }
+        ws.Range(1, 1, 1, headers.Length).Style.Font.Bold = true;
+
+        for (int i = 0; i < results.Count; i++)
+        {
+            var r = results[i];
+            var row = i + 2;
+            ws.Cell(row, 1).Value = r.AnalysisId;
+            ws.Cell(row, 2).Value = r.CalculatedAt.ToString("yyyy-MM-dd HH:mm:ss");
+            ws.Cell(row, 3).Value = r.DeviceId;
+            ws.Cell(row, 4).Value = r.ConfigMemo;
+            ws.Cell(row, 5).Value = r.ChamberVolume;
+            ws.Cell(row, 6).Value = r.StartTime;
+            ws.Cell(row, 7).Value = r.EndTime;
+            ws.Cell(row, 8).Value = r.LeakRateTorrLps;
+            ws.Cell(row, 9).Value = r.LeakRatePaM3ps;
+            ws.Cell(row, 10).Value = r.LeakRateMbarLps;
+            ws.Cell(row, 11).Value = r.PressureChangeRate;
+            ws.Cell(row, 12).Value = r.RSquared ?? 0;
+            ws.Cell(row, 13).Value = r.DataPointCount;
+
+            // Scientific notation
+            ws.Cell(row, 5).Style.NumberFormat.Format = "0.00E+00";
+            ws.Cell(row, 8).Style.NumberFormat.Format = "0.00E+00";
+            ws.Cell(row, 9).Style.NumberFormat.Format = "0.00E+00";
+            ws.Cell(row, 10).Style.NumberFormat.Format = "0.00E+00";
+            ws.Cell(row, 11).Style.NumberFormat.Format = "0.00E+00";
+            ws.Cell(row, 12).Style.NumberFormat.Format = "0.0000";
         }
 
         ws.Columns().AdjustToContents();

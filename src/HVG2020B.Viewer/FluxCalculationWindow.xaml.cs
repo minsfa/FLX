@@ -1,6 +1,8 @@
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using HVG2020B.Core;
 using HVG2020B.Viewer.ViewModels;
 using ScottPlot;
 
@@ -29,6 +31,7 @@ public partial class FluxCalculationWindow : Window
 
         _viewModel.DataUpdated += OnDataUpdated;
         _viewModel.RangeChanged += OnRangeChanged;
+        _viewModel.PropertyChanged += OnViewModelPropertyChanged;
 
         // Setup chart mouse click handler
         PressureChart.MouseLeftButtonDown += OnChartMouseLeftButtonDown;
@@ -41,23 +44,52 @@ public partial class FluxCalculationWindow : Window
     {
         PressureChart.Plot.Title("Pressure vs Time");
         PressureChart.Plot.XLabel("Time (s)");
-        PressureChart.Plot.YLabel("Pressure (Pa)");
+        UpdateChartYLabel();
 
         // Style the plot
         PressureChart.Plot.FigureBackground.Color = ScottPlot.Color.FromHex("#FFFFFF");
         PressureChart.Plot.DataBackground.Color = ScottPlot.Color.FromHex("#F8F8F8");
     }
 
+    private void UpdateChartYLabel()
+    {
+        PressureChart.Plot.YLabel(
+            _viewModel.IsPermeationMode ? "Pressure (Pa)" : "Pressure (Torr)");
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(FluxCalculationViewModel.IsPermeationMode))
+        {
+            UpdateChartYLabel();
+            // Re-plot data with correct unit display
+            OnDataUpdated();
+        }
+    }
+
     private void OnDataUpdated()
     {
         PressureChart.Plot.Clear();
+        _rangePlot = null;
+        _startLine = null;
+        _endLine = null;
 
         if (_viewModel.TimeData.Count == 0) return;
 
-        // Plot main data
+        // Chart always shows data in internal unit (Pa), but in LeakRate mode convert to Torr for display
+        double[] displayPressure;
+        if (_viewModel.IsLeakRateMode)
+        {
+            displayPressure = _viewModel.PressureData
+                .Select(p => p * FluxCalculator.PaToTorr).ToArray();
+        }
+        else
+        {
+            displayPressure = _viewModel.PressureData.ToArray();
+        }
+
         _dataPlot = PressureChart.Plot.Add.Scatter(
-            _viewModel.TimeData.ToArray(),
-            _viewModel.PressureData.ToArray());
+            _viewModel.TimeData.ToArray(), displayPressure);
 
         _dataPlot.Color = ScottPlot.Color.FromHex("#2196F3");
         _dataPlot.LineWidth = 2;
@@ -77,9 +109,21 @@ public partial class FluxCalculationWindow : Window
         if (_endLine != null)
             PressureChart.Plot.Remove(_endLine);
 
-        // Add range line connecting start and end points
+        // Use display-unit pressures for range visualization
+        double startP, endP;
+        if (_viewModel.IsLeakRateMode)
+        {
+            startP = _viewModel.StartPressure * FluxCalculator.PaToTorr;
+            endP = _viewModel.EndPressure * FluxCalculator.PaToTorr;
+        }
+        else
+        {
+            startP = _viewModel.StartPressure;
+            endP = _viewModel.EndPressure;
+        }
+
         var rangeX = new double[] { _viewModel.StartTime, _viewModel.EndTime };
-        var rangeY = new double[] { _viewModel.StartPressure, _viewModel.EndPressure };
+        var rangeY = new double[] { startP, endP };
 
         _rangePlot = PressureChart.Plot.Add.Scatter(rangeX, rangeY);
         _rangePlot.Color = ScottPlot.Color.FromHex("#E53935");
@@ -144,6 +188,7 @@ public partial class FluxCalculationWindow : Window
         PressureChart.MouseLeftButtonDown -= OnChartMouseLeftButtonDown;
         _viewModel.DataUpdated -= OnDataUpdated;
         _viewModel.RangeChanged -= OnRangeChanged;
+        _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
         base.OnClosed(e);
     }
 }

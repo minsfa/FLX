@@ -20,6 +20,21 @@ public class FluxCalculator
     public const double GpuConversionFactor = 3.348e-10;
 
     /// <summary>
+    /// Conversion factor from Pa·m³/s to Torr·L/s
+    /// </summary>
+    public const double PaM3sToTorrLps = 7.50062;
+
+    /// <summary>
+    /// Conversion factor from Pa·m³/s to mbar·L/s
+    /// </summary>
+    public const double PaM3sToMbarLps = 10.0;
+
+    /// <summary>
+    /// Conversion factor from Pa to Torr
+    /// </summary>
+    public const double PaToTorr = 0.00750062;
+
+    /// <summary>
     /// Input parameters for flux calculation.
     /// </summary>
     public class Parameters
@@ -248,6 +263,88 @@ public class FluxCalculator
             Permeance = permeance,
             DataPointCount = rangeData.Count,
             RSquared = rSquared
+        };
+    }
+
+    /// <summary>
+    /// Result of leak rate calculation (Pressure Rise Test).
+    /// </summary>
+    public class LeakRateResult
+    {
+        public double StartTime { get; set; }
+        public double EndTime { get; set; }
+        public double StartPressure { get; set; }
+        public double EndPressure { get; set; }
+        public double Period => Math.Abs(EndTime - StartTime);
+        public double PressureChangeRate { get; set; }
+        public double? LinearizationSlope { get; set; }
+        public double EffectivePressureChangeRate => LinearizationSlope ?? PressureChangeRate;
+        public double? RSquared { get; set; }
+        public int DataPointCount { get; set; }
+        public double LeakRatePaM3ps { get; set; }
+        public double LeakRateTorrLps { get; set; }
+        public double LeakRateMbarLps { get; set; }
+    }
+
+    /// <summary>
+    /// Calculates leak rate Q = V × dP/dt for a pressure rise test.
+    /// Data is expected in Pa. Result includes Q in Pa·m³/s, Torr·L/s, mbar·L/s.
+    /// </summary>
+    /// <param name="chamberVolumeM3">Chamber volume in m³</param>
+    /// <param name="startTime">Start time in seconds</param>
+    /// <param name="endTime">End time in seconds</param>
+    public LeakRateResult CalculateLeakRate(double chamberVolumeM3, double startTime, double endTime)
+    {
+        if (_data.Count < 2)
+            throw new InvalidOperationException("At least 2 data points are required");
+
+        EnsureInterpolation();
+
+        double startPressure = _interpolation!.Interpolate(startTime);
+        double endPressure = _interpolation.Interpolate(endTime);
+
+        double period = Math.Abs(endTime - startTime);
+        if (period <= 0)
+            throw new ArgumentException("Start and end time must be different");
+
+        double pressureChangeRate = (endPressure - startPressure) / period;
+
+        var rangeData = GetDataInRange(startTime, endTime);
+
+        double? linearizationSlope = null;
+        double? rSquared = null;
+
+        if (rangeData.Count >= 2)
+        {
+            var times = rangeData.Select(p => p.Time).ToArray();
+            var pressures = rangeData.Select(p => p.Pressure).ToArray();
+
+            var (intercept, slope) = Fit.Line(times, pressures);
+            linearizationSlope = startTime < endTime ? slope : -slope;
+
+            rSquared = GoodnessOfFit.RSquared(
+                times.Select(t => intercept + slope * t),
+                pressures);
+        }
+
+        double effectiveRate = linearizationSlope ?? pressureChangeRate;
+
+        // Q = V × dP/dt (Pa·m³/s)
+        double qPaM3s = chamberVolumeM3 * effectiveRate;
+
+        return new LeakRateResult
+        {
+            StartTime = startTime,
+            EndTime = endTime,
+            StartPressure = startPressure,
+            EndPressure = endPressure,
+            PressureChangeRate = pressureChangeRate,
+            LinearizationSlope = linearizationSlope,
+            RSquared = rSquared,
+            DataPointCount = rangeData.Count,
+            LeakRatePaM3ps = qPaM3s,
+            LeakRateTorrLps = qPaM3s * PaM3sToTorrLps,
+            LeakRateMbarLps = qPaM3s * PaM3sToMbarLps
         };
     }
 
