@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace HVG2020B.Core.Models;
 
 public class StudyMetadata
@@ -6,7 +8,12 @@ public class StudyMetadata
 
     public string Title { get; set; } = "";
 
-    public string MeasurementId { get; set; } = "";
+    /// <summary>
+    /// User-provided tag (displayed as "Id" in the UI).
+    /// Serialized as "measurementId" for backward compat with old studies.json.
+    /// </summary>
+    [JsonPropertyName("measurementId")]
+    public string UserTag { get; set; } = "";
 
     public DateTimeOffset CreatedAt { get; set; }
 
@@ -20,5 +27,12 @@ public class StudyMetadata
 
     public string Notes { get; set; } = "";
 
+    /// <summary>Study-level status: "Active" or "Closed"</summary>
+    public string Status { get; set; } = "Active";
+
+    /// <summary>
+    /// LEGACY: Kept for deserialization of old data.
+    /// New studies use MeasurementRecord.LatestAnalysisId.
+    /// </summary>
     public int LatestAnalysisId { get; set; }
 }

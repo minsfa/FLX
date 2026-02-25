@@ -77,6 +77,10 @@
             <SolidColorBrush x:Key="DisabledBrush" Color="{StaticResource DisabledColor}"/>
             <SolidColorBrush x:Key="EmulatorBrush" Color="{StaticResource EmulatorColor}"/>
 
+            <!-- Study Status Brushes -->
+            <SolidColorBrush x:Key="ActiveBrush" Color="{StaticResource SuccessColor}"/>
+            <SolidColorBrush x:Key="ClosedBrush" Color="{StaticResource DoneColor}"/>
+
             <!-- ═══════════════════════════════════════════════
                  Global Default Styles (dark theme for all controls)
                  ═══════════════════════════════════════════════ -->

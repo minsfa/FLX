@@ -7,7 +7,7 @@
         xmlns:converters="clr-namespace:HVG2020B.Viewer.Converters"
         mc:Ignorable="d"
         Title="Permeance &amp; Flux Calculation"
-        Height="650" Width="900"
+        SizeToContent="Height" Width="900"
         Background="{StaticResource BackgroundBrush}"
         WindowStartupLocation="CenterOwner">
 
@@ -25,13 +25,11 @@
         <!-- Left Panel: Input/Output -->
         <Grid Grid.Column="0">
             <Grid.RowDefinitions>
-                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <!-- Scrollable content -->
-            <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
-                <StackPanel>
+            <StackPanel Grid.Row="0">
 
                     <!-- Mode Toggle -->
                     <GroupBox Style="{StaticResource DarkGroupBox}" Margin="0,0,0,4">
@@ -274,9 +272,8 @@
                     </GroupBox>
 
                 </StackPanel>
-            </ScrollViewer>
 
-            <!-- Fixed bottom: Actions + Status (always visible) -->
+            <!-- Actions + Status -->
             <StackPanel Grid.Row="1" Margin="0,8,0,0">
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                     <Button Content="Calculate" Command="{Binding CalculateCommand}"

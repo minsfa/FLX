@@ -1,179 +1,166 @@
 using System.Collections.ObjectModel;
-using System.Globalization;
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
-using HVG2020B.Core;
 using HVG2020B.Core.Models;
 
 namespace HVG2020B.Viewer.ViewModels;
 
 public partial class StudyItem : ObservableObject, IDisposable
 {
-    private StreamWriter? _csvWriter;
-    private readonly Dictionary<string, int> _logTickCounters = new();
     private bool _disposed;
+    private int _nextMeasurementNumber = 1;
 
-    public StudyItem(StudyMetadata metadata)
+    /// <summary>Create a brand-new study (no measurements yet)</summary>
+    public StudyItem(StudyMetadata metadata, string studyFolderPath)
     {
         Metadata = metadata;
+        StudyFolderPath = studyFolderPath;
+        IsActive = true;
     }
 
-    public StudyItem(StudyRecord record)
+    /// <summary>Load from a persisted StudyRecord (including legacy)</summary>
+    public StudyItem(StudyRecord record, string studyFolderPath)
     {
         Metadata = record.Metadata;
-        CsvFilePath = record.CsvFilePath;
-        RecordedSampleCount = record.RecordedSampleCount;
-        AnalysisResults = new ObservableCollection<FluxAnalysisResult>(
-            record.AnalysisResults);
+        StudyFolderPath = studyFolderPath;
+        IsActive = record.Metadata.Status != "Closed";
 
-        // Restore StudyFolderPath from CsvFilePath
-        if (!string.IsNullOrEmpty(record.CsvFilePath))
-            StudyFolderPath = Path.GetDirectoryName(record.CsvFilePath);
-
-        if (!string.IsNullOrEmpty(record.CsvFilePath) && File.Exists(record.CsvFilePath))
-            State = StudyState.Done;
-        else if (record.StudyState == "Done")
+        // Legacy compat: synthesize M001 if no measurements but has CsvFilePath
+        if (record.Measurements.Count == 0 && !string.IsNullOrEmpty(record.CsvFilePath))
         {
-            State = StudyState.Done;
-            IsBroken = true; // CSV path recorded but file missing
+            record.Measurements.Add(CreateSyntheticMeasurement(record));
         }
-        else
-            State = StudyState.Ready;
+
+        foreach (var mRec in record.Measurements)
+        {
+            var mItem = new MeasurementItem(mRec, studyFolderPath);
+            foreach (var ar in mRec.AnalysisResults)
+                mItem.AnalysisResults.Add(ar);
+            Measurements.Add(mItem);
+        }
+
+        _nextMeasurementNumber = record.Measurements.Count + 1;
+        IsBroken = Measurements.Any(m => m.IsBroken);
     }
 
     public StudyMetadata Metadata { get; }
 
     public string StudyId => Metadata.StudyId;
-
     public string Title => Metadata.Title;
+    public string UserTag => Metadata.UserTag;
+    public string StudyFolderPath { get; }
 
-    public string MeasurementId => Metadata.MeasurementId;
-
-    public string DisplayName => string.IsNullOrEmpty(MeasurementId)
+    public string DisplayName => string.IsNullOrEmpty(UserTag)
         ? Title
-        : $"{MeasurementId} / {Title}";
+        : $"{UserTag} / {Title}";
 
     public string DevicesSummary => string.Join(", ", Metadata.DeviceIds);
 
     [ObservableProperty]
-    private StudyState _state = StudyState.Ready;
-
-    [ObservableProperty]
-    private string? _csvFilePath;
-
-    [ObservableProperty]
-    private int _recordedSampleCount;
+    private bool _isActive = true;
 
     [ObservableProperty]
     private bool _isBroken;
 
-    public ObservableCollection<FluxAnalysisResult> AnalysisResults { get; } = new();
+    [ObservableProperty]
+    private bool _isExpanded;
+
+    public ObservableCollection<MeasurementItem> Measurements { get; } = new();
+
+    public bool HasRecordingMeasurement =>
+        Measurements.Any(m => m.State == MeasurementState.Recording);
+
+    /// <summary>Call after a measurement starts or stops recording to refresh UI bindings.</summary>
+    public void NotifyRecordingChanged() =>
+        OnPropertyChanged(nameof(HasRecordingMeasurement));
+
+    public int TotalSampleCount => Measurements.Sum(m => m.RecordedSampleCount);
+
+    public int DoneMeasurementCount =>
+        Measurements.Count(m => m.State == MeasurementState.Done);
+
+    public string MeasurementSummary
+    {
+        get
+        {
+            if (Measurements.Count == 0) return "No measurements";
+            var recording = Measurements.Count(m => m.State == MeasurementState.Recording);
+            var done = DoneMeasurementCount;
+            if (recording > 0) return $"{Measurements.Count} measurements ({recording} recording)";
+            return $"{Measurements.Count} measurements ({done} done)";
+        }
+    }
+
+    public MeasurementItem AddMeasurement(string label, List<string> deviceIds)
+    {
+        if (!IsActive) throw new InvalidOperationException("Cannot add measurement to a Closed study");
+
+        var mId = $"M{_nextMeasurementNumber:D3}";
+        _nextMeasurementNumber++;
+
+        var mRecord = new MeasurementRecord
+        {
+            MeasurementId = mId,
+            Label = label,
+            DeviceIds = deviceIds,
+            State = "Ready"
+        };
+
+        var mItem = new MeasurementItem(mRecord, StudyFolderPath);
+        Measurements.Add(mItem);
+        OnPropertyChanged(nameof(MeasurementSummary));
+        return mItem;
+    }
+
+    public void CloseStudy()
+    {
+        foreach (var m in Measurements.Where(m => m.State == MeasurementState.Recording))
+            m.StopRecording();
+
+        Metadata.EndTime = DateTimeOffset.Now;
+        Metadata.Status = "Closed";
+        IsActive = false;
+        OnPropertyChanged(nameof(MeasurementSummary));
+    }
 
     public StudyRecord ToRecord()
     {
+        foreach (var m in Measurements)
+            m.SyncToRecord();
+
         return new StudyRecord
         {
             Metadata = Metadata,
-            CsvFilePath = CsvFilePath,
-            StudyState = State == StudyState.Recording ? "Done" : State.ToString(),
-            RecordedSampleCount = RecordedSampleCount,
-            AnalysisResults = AnalysisResults.ToList()
+            Measurements = Measurements.Select(m => m.Record).ToList(),
+            StudyState = IsActive ? "Active" : "Closed",
+            CsvFilePath = null,
+            RecordedSampleCount = TotalSampleCount,
+            AnalysisResults = new()
         };
-    }
-
-    public void AddAnalysisResult(FluxAnalysisResult result)
-    {
-        result.AnalysisId = Metadata.LatestAnalysisId + 1;
-        Metadata.LatestAnalysisId = result.AnalysisId;
-        AnalysisResults.Insert(0, result);
-    }
-
-    /// <summary>
-    /// The per-study folder path: logs/{Title}/
-    /// </summary>
-    public string? StudyFolderPath { get; private set; }
-
-    public void StartRecording(string logDir)
-    {
-        if (State != StudyState.Ready) return;
-
-        // Create per-study folder: logs/{date}_{id}_{study}/ (Gasmon pattern)
-        var date = DateTime.Now.ToString("yyyyMMdd");
-        var parts = new[] { date, SanitizeFolderName(Metadata.MeasurementId), SanitizeFolderName(Metadata.Title) }
-            .Where(p => !string.IsNullOrWhiteSpace(p));
-        var folderName = string.Join("_", parts);
-        StudyFolderPath = Path.Combine(logDir, folderName);
-        if (!Directory.Exists(StudyFolderPath))
-            Directory.CreateDirectory(StudyFolderPath);
-
-        CsvFilePath = Path.Combine(StudyFolderPath, $"{StudyId}.csv");
-        _csvWriter = new StreamWriter(CsvFilePath, false, System.Text.Encoding.UTF8);
-        _csvWriter.WriteLine("timestamp_iso,device_id,pressure_torr");
-
-        Metadata.StartTime = DateTimeOffset.Now;
-        RecordedSampleCount = 0;
-        _logTickCounters.Clear();
-        State = StudyState.Recording;
-    }
-
-    public void StopRecording()
-    {
-        if (State != StudyState.Recording) return;
-
-        _csvWriter?.Flush();
-        _csvWriter?.Close();
-        _csvWriter?.Dispose();
-        _csvWriter = null;
-
-        Metadata.EndTime = DateTimeOffset.Now;
-        State = StudyState.Done;
-    }
-
-    public bool TryWriteReading(string deviceId, GaugeReading reading, int tickThreshold)
-    {
-        if (State != StudyState.Recording || _csvWriter == null) return false;
-        if (!Metadata.DeviceIds.Contains(deviceId)) return false;
-
-        var counter = _logTickCounters.TryGetValue(deviceId, out var val) ? val + 1 : 1;
-        if (counter < tickThreshold)
-        {
-            _logTickCounters[deviceId] = counter;
-            return false;
-        }
-        _logTickCounters[deviceId] = 0;
-
-        var timestampIso = reading.Timestamp.ToString("O", CultureInfo.InvariantCulture);
-        var pressureStr = reading.PressureTorr.ToString("G", CultureInfo.InvariantCulture);
-        _csvWriter.WriteLine($"{timestampIso},{deviceId},{pressureStr}");
-
-        RecordedSampleCount++;
-
-        if (RecordedSampleCount % 10 == 0)
-            _csvWriter.Flush();
-
-        return true;
     }
 
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
-        _csvWriter?.Flush();
-        _csvWriter?.Dispose();
-        _csvWriter = null;
+        foreach (var m in Measurements)
+            m.Dispose();
     }
 
-    private static string SanitizeFolderName(string name)
+    private static MeasurementRecord CreateSyntheticMeasurement(StudyRecord record)
     {
-        var invalid = Path.GetInvalidFileNameChars();
-        var sanitized = new string(name.Select(c => invalid.Contains(c) ? '_' : c).ToArray());
-        return string.IsNullOrWhiteSpace(sanitized) ? "Untitled" : sanitized.Trim();
+        return new MeasurementRecord
+        {
+            MeasurementId = "M001",
+            Label = "(migrated)",
+            DeviceIds = new List<string>(record.Metadata.DeviceIds),
+            CsvFileName = Path.GetFileName(record.CsvFilePath!),
+            StartTime = record.Metadata.StartTime ?? record.Metadata.CreatedAt,
+            EndTime = record.Metadata.EndTime,
+            RecordedSampleCount = record.RecordedSampleCount,
+            State = (record.StudyState == "Done" || record.StudyState == "Closed") ? "Done" : "Ready",
+            AnalysisResults = new List<FluxAnalysisResult>(record.AnalysisResults),
+            LatestAnalysisId = record.Metadata.LatestAnalysisId
+        };
     }
-}
-
-public enum StudyState
-{
-    Ready,
-    Recording,
-    Done
 }

@@ -38,12 +38,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private int _sampleCount;
     private bool _disposed;
 
-    // Per-study recording (multiple simultaneous)
-    private readonly List<StudyItem> _recordingStudies = new();
+    // Per-measurement recording (multiple simultaneous)
+    private readonly List<MeasurementItem> _recordingMeasurements = new();
 
     // Study persistence
     private readonly string _logDir;
-    private readonly StudyStore _studyStore;
+    private readonly StudyFolderStore _studyFolderStore;
 
     private const int LiveIntervalMs = 100;
 
@@ -89,17 +89,38 @@ public partial class MainViewModel : ObservableObject, IDisposable
             }
         };
 
-        // Study persistence
+        // Study persistence — per-folder store
         _logDir = Path.Combine(Directory.GetCurrentDirectory(), "logs");
-        _studyStore = new StudyStore(_logDir);
-        foreach (var record in _studyStore.LoadAll())
+        _studyFolderStore = new StudyFolderStore(_logDir);
+
+        // One-time migration from legacy studies.json
+        var migratedCount = _studyFolderStore.MigrateFromLegacy();
+
+        // Load studies from per-folder store
+        foreach (var record in _studyFolderStore.LoadAll())
         {
-            Studies.Add(new StudyItem(record));
+            // Determine folder path: prefer existing folder from CsvFilePath, else default
+            string folderPath;
+            if (!string.IsNullOrEmpty(record.CsvFilePath) &&
+                Directory.Exists(Path.GetDirectoryName(record.CsvFilePath)))
+            {
+                folderPath = Path.GetDirectoryName(record.CsvFilePath)!;
+            }
+            else
+            {
+                folderPath = _studyFolderStore.GetStudyFolderPath(record.Metadata.StudyId);
+            }
+
+            Studies.Add(new StudyItem(record, folderPath));
         }
+
         ApplyStudyFilter();
         if (FilteredStudies.Count > 0)
             SelectedStudy = FilteredStudies[0];
         RefreshFluxResultsDashboard();
+
+        if (migratedCount > 0)
+            StatusMessage = $"Migrated {migratedCount} legacy studies";
     }
 
     #region Observable Properties
@@ -138,8 +159,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private string _newStudyId = string.Empty;
 
+    // Add Measurement dialog
     [ObservableProperty]
-    private ObservableCollection<NewStudyDeviceOption> _newStudyDeviceSelections = new();
+    private bool _isAddMeasurementDialogOpen;
+
+    [ObservableProperty]
+    private string _newMeasurementLabel = string.Empty;
+
+    [ObservableProperty]
+    private ObservableCollection<NewStudyDeviceOption> _newMeasurementDeviceSelections = new();
 
     [ObservableProperty]
     private bool _isScanning;
@@ -245,7 +273,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     #endregion
 
-    #region Commands
+    #region Device Commands
 
     [RelayCommand]
     private async Task ScanForDevices()
@@ -446,6 +474,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
+        // Prevent removal while a recording measurement uses this device
+        if (_recordingMeasurements.Any(m => m.Record.DeviceIds.Contains(device.DeviceId)))
+        {
+            StatusMessage = $"Cannot remove {device.DeviceId} — recording in progress";
+            return;
+        }
+
         device.Device.Disconnect();
         device.IsConnected = false;
         device.PortName = null;
@@ -478,34 +513,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
         device.IsVisibleOnChart = !device.IsVisibleOnChart;
     }
 
+    #endregion
+
+    #region Study Commands
+
     [RelayCommand]
     private void OpenNewStudyDialog()
     {
         IsNewStudyDialogOpen = true;
         NewStudyTitle = string.Empty;
-        NewStudyDeviceSelections.Clear();
-
-        foreach (var device in Devices.Where(d => d.IsConnected))
-        {
-            NewStudyDeviceSelections.Add(new NewStudyDeviceOption(device.DeviceId, isSelected: true));
-        }
-
-        if (NewStudyDeviceSelections.Count == 0)
-        {
-            StatusMessage = "No connected devices available for study";
-        }
-    }
-
-    [RelayCommand]
-    private void SelectAllDevices()
-    {
-        foreach (var d in NewStudyDeviceSelections) d.IsSelected = true;
-    }
-
-    [RelayCommand]
-    private void DeselectAllDevices()
-    {
-        foreach (var d in NewStudyDeviceSelections) d.IsSelected = false;
+        NewStudyId = string.Empty;
     }
 
     [RelayCommand]
@@ -514,7 +531,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
         IsNewStudyDialogOpen = false;
         NewStudyTitle = string.Empty;
         NewStudyId = string.Empty;
-        NewStudyDeviceSelections.Clear();
     }
 
     [RelayCommand]
@@ -526,7 +542,83 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var selectedDevices = NewStudyDeviceSelections
+        var studyId = GenerateStudyId();
+        var metadata = new StudyMetadata
+        {
+            StudyId = studyId,
+            Title = NewStudyTitle.Trim(),
+            UserTag = NewStudyId.Trim(),
+            CreatedAt = DateTimeOffset.Now,
+            Status = "Active"
+        };
+
+        var folderPath = _studyFolderStore.GetStudyFolderPath(studyId);
+        var newStudy = new StudyItem(metadata, folderPath);
+        Studies.Insert(0, newStudy);
+        ApplyStudyFilter();
+        SelectedStudy = newStudy;
+        PersistStudy(newStudy);
+
+        IsNewStudyDialogOpen = false;
+        NewStudyTitle = string.Empty;
+        NewStudyId = string.Empty;
+
+        StatusMessage = $"Study created: {studyId}";
+    }
+
+    [RelayCommand]
+    private void OpenAddMeasurementDialog()
+    {
+        if (SelectedStudy == null || !SelectedStudy.IsActive) return;
+
+        IsAddMeasurementDialogOpen = true;
+        NewMeasurementLabel = string.Empty;
+        NewMeasurementDeviceSelections.Clear();
+
+        foreach (var device in Devices.Where(d => d.IsConnected))
+        {
+            NewMeasurementDeviceSelections.Add(
+                new NewStudyDeviceOption(device.DeviceId, isSelected: true));
+        }
+
+        if (NewMeasurementDeviceSelections.Count == 0)
+        {
+            StatusMessage = "No connected devices available";
+        }
+    }
+
+    [RelayCommand]
+    private void CancelAddMeasurement()
+    {
+        IsAddMeasurementDialogOpen = false;
+        NewMeasurementLabel = string.Empty;
+        NewMeasurementDeviceSelections.Clear();
+    }
+
+    [RelayCommand]
+    private void SelectAllMeasurementDevices()
+    {
+        foreach (var d in NewMeasurementDeviceSelections) d.IsSelected = true;
+    }
+
+    [RelayCommand]
+    private void DeselectAllMeasurementDevices()
+    {
+        foreach (var d in NewMeasurementDeviceSelections) d.IsSelected = false;
+    }
+
+    [RelayCommand]
+    private void CreateAndStartMeasurement()
+    {
+        if (SelectedStudy == null || !SelectedStudy.IsActive) return;
+
+        if (CurrentState == ViewerState.Disconnected)
+        {
+            StatusMessage = "Cannot record: no devices connected";
+            return;
+        }
+
+        var selectedDevices = NewMeasurementDeviceSelections
             .Where(d => d.IsSelected)
             .Select(d => d.DeviceId)
             .ToList();
@@ -537,46 +629,24 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var metadata = new StudyMetadata
-        {
-            StudyId = GenerateStudyId(),
-            Title = NewStudyTitle.Trim(),
-            MeasurementId = NewStudyId.Trim(),
-            CreatedAt = DateTimeOffset.Now,
-            DeviceIds = selectedDevices
-        };
-
-        var newStudy = new StudyItem(metadata);
-        Studies.Insert(0, newStudy);
-        ApplyStudyFilter();
-        SelectedStudy = newStudy;
-        PersistStudies();
-
-        IsNewStudyDialogOpen = false;
-        NewStudyTitle = string.Empty;
-        NewStudyId = string.Empty;
-        NewStudyDeviceSelections.Clear();
-
-        StatusMessage = $"Study created: {metadata.StudyId}";
-    }
-
-    [RelayCommand]
-    private void StartStudyRecording(object? parameter)
-    {
-        if (parameter is not StudyItem study) return;
-        if (study.State != StudyState.Ready) return;
-
-        if (CurrentState == ViewerState.Disconnected)
-        {
-            StatusMessage = "Cannot record: no devices connected";
-            return;
-        }
-
         try
         {
-            study.StartRecording(_logDir);
-            _recordingStudies.Add(study);
-            PersistStudies();
+            var measurement = SelectedStudy.AddMeasurement(
+                NewMeasurementLabel.Trim(), selectedDevices);
+
+            measurement.StartRecording();
+            _recordingMeasurements.Add(measurement);
+            SelectedStudy.NotifyRecordingChanged();
+
+            if (SelectedStudy.Metadata.StartTime == null)
+                SelectedStudy.Metadata.StartTime = DateTimeOffset.Now;
+
+            SelectedStudy.IsExpanded = true;
+            PersistStudy(SelectedStudy);
+
+            IsAddMeasurementDialogOpen = false;
+            NewMeasurementLabel = string.Empty;
+            NewMeasurementDeviceSelections.Clear();
 
             if (CurrentState != ViewerState.Recording)
             {
@@ -585,30 +655,59 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 RecordingTime = "00:00:00";
             }
 
-            StatusMessage = $"Recording '{study.Title}' ({_recordingStudies.Count} active)";
+            StatusMessage = $"Recording {measurement.MeasurementId} in '{SelectedStudy.Title}'";
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Failed to start recording: {ex.Message}";
+            StatusMessage = $"Failed to start measurement: {ex.Message}";
         }
     }
 
     [RelayCommand]
-    private void StopStudyRecording(object? parameter)
+    private void StopMeasurementRecording(object? parameter)
     {
-        if (parameter is not StudyItem study) return;
-        if (study.State != StudyState.Recording) return;
+        if (parameter is not MeasurementItem measurement) return;
+        if (measurement.State != MeasurementState.Recording) return;
 
-        study.StopRecording();
-        _recordingStudies.Remove(study);
-        PersistStudies();
+        measurement.StopRecording();
+        _recordingMeasurements.Remove(measurement);
 
-        StatusMessage = $"Stopped '{study.Title}' - {study.RecordedSampleCount} samples";
+        var parentStudy = FindParentStudy(measurement);
+        if (parentStudy != null)
+        {
+            parentStudy.NotifyRecordingChanged();
+            PersistStudy(parentStudy);
+        }
 
-        if (_recordingStudies.Count == 0)
+        StatusMessage = $"Stopped {measurement.MeasurementId} - {measurement.RecordedSampleCount} samples";
+
+        if (_recordingMeasurements.Count == 0)
         {
             CurrentState = ViewerState.Live;
         }
+    }
+
+    [RelayCommand]
+    private void CloseStudy(object? parameter)
+    {
+        if (parameter is not StudyItem study) return;
+        if (!study.IsActive) return;
+
+        // Stop any active recordings in this study
+        foreach (var m in study.Measurements
+            .Where(m => m.State == MeasurementState.Recording).ToList())
+        {
+            m.StopRecording();
+            _recordingMeasurements.Remove(m);
+        }
+
+        study.CloseStudy();
+        PersistStudy(study);
+
+        if (_recordingMeasurements.Count == 0 && CurrentState == ViewerState.Recording)
+            CurrentState = ViewerState.Live;
+
+        StatusMessage = $"Study closed: {study.Title}";
     }
 
     [RelayCommand]
@@ -616,9 +715,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         if (parameter is not StudyItem study) return;
 
-        if (study.State == StudyState.Recording)
+        // Stop any active recordings in this study
+        foreach (var m in study.Measurements
+            .Where(m => m.State == MeasurementState.Recording).ToList())
         {
-            StopStudyRecording(study);
+            m.StopRecording();
+            _recordingMeasurements.Remove(m);
         }
 
         // Ask user whether to also delete files from disk
@@ -641,14 +743,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
         study.Dispose();
         Studies.Remove(study);
         ApplyStudyFilter();
-        PersistStudies();
         RefreshFluxResultsDashboard();
 
         if (deleteFiles && !string.IsNullOrEmpty(folderPath))
         {
             try
             {
-                Directory.Delete(folderPath, recursive: true);
+                _studyFolderStore.DeleteFolder(folderPath);
                 StatusMessage = $"Study deleted (files removed): {study.StudyId}";
             }
             catch (Exception ex)
@@ -660,26 +761,34 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             StatusMessage = $"Study deleted: {study.StudyId}";
         }
+
+        if (_recordingMeasurements.Count == 0 && CurrentState == ViewerState.Recording)
+            CurrentState = ViewerState.Live;
     }
 
     [RelayCommand]
-    private void AnalyzeStudy(object? parameter)
+    private void AnalyzeMeasurement(object? parameter)
     {
-        if (parameter is not StudyItem study) return;
-        if (study.State != StudyState.Done) return;
-        if (string.IsNullOrEmpty(study.CsvFilePath) || !File.Exists(study.CsvFilePath))
+        if (parameter is not MeasurementItem measurement) return;
+        if (measurement.State != MeasurementState.Done) return;
+
+        var csvPath = measurement.CsvFilePath;
+        if (string.IsNullOrEmpty(csvPath) || !File.Exists(csvPath))
         {
-            StatusMessage = $"CSV file not found for study '{study.Title}'";
+            StatusMessage = "CSV file not found for this measurement";
             return;
         }
 
+        var parentStudy = FindParentStudy(measurement);
+        if (parentStudy == null) return;
+
         try
         {
-            var parsed = StudyCsvParser.Parse(study.CsvFilePath);
+            var parsed = StudyCsvParser.Parse(csvPath);
 
             if (parsed.DeviceIds.Count == 0)
             {
-                StatusMessage = "No data found in study CSV";
+                StatusMessage = "No data found in measurement CSV";
                 return;
             }
 
@@ -706,16 +815,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 return;
             }
 
-            var studyFolder = study.StudyFolderPath ?? Path.GetDirectoryName(study.CsvFilePath);
+            var studyFolder = parentStudy.StudyFolderPath;
             var fluxWindow = new FluxCalculationWindow(
                 new List<double>(timeSeconds), new List<double>(pressureTorr), studyFolder);
-            fluxWindow.Title = $"Calculation - {study.Title} ({selectedDeviceId})";
+            fluxWindow.Title = $"Calculation - {parentStudy.Title} / {measurement.MeasurementId} ({selectedDeviceId})";
             fluxWindow.Owner = Application.Current.MainWindow;
             fluxWindow.ShowDialog();
 
             if (fluxWindow.CalculationResult is { } calc)
             {
-                // Capture screenshot before closing window
+                // Capture screenshot
                 string? screenshotPath = null;
                 if (studyFolder != null)
                 {
@@ -723,7 +832,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
                     {
                         screenshotPath = ScreenshotCapture.CaptureWindow(
                             fluxWindow, studyFolder,
-                            $"{study.StudyId}_analysis_{study.Metadata.LatestAnalysisId + 1}");
+                            $"{measurement.MeasurementId}_analysis_{measurement.Record.LatestAnalysisId + 1}");
                     }
                     catch { /* screenshot failure is non-fatal */ }
                 }
@@ -731,9 +840,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 var analysisResult = new FluxAnalysisResult
                 {
                     CalculatedAt = DateTimeOffset.Now,
-                    StudyId = study.StudyId,
-                    StudyTitle = study.Title,
-                    MeasurementId = study.MeasurementId,
+                    StudyId = parentStudy.StudyId,
+                    StudyTitle = parentStudy.Title,
+                    MeasurementId = parentStudy.UserTag,
+                    MeasurementRecordId = measurement.MeasurementId,
                     DeviceId = selectedDeviceId,
                     ScreenshotPath = screenshotPath,
                     Mode = calc.Mode,
@@ -755,19 +865,18 @@ public partial class MainViewModel : ObservableObject, IDisposable
                     ConfigMemo = calc.ConfigMemo
                 };
 
-                study.AddAnalysisResult(analysisResult);
-                PersistStudies();
+                measurement.AddAnalysisResult(analysisResult);
+                PersistStudy(parentStudy);
                 RefreshFluxResultsDashboard();
 
                 // Auto-export Excel to study folder
-                if (studyFolder != null && study.CsvFilePath != null)
+                if (studyFolder != null)
                 {
                     try
                     {
                         var excelPath = Path.Combine(studyFolder,
-                            $"{SanitizeFolderName(study.Title)}.xlsx");
-                        StudyExcelExporter.Export(excelPath, study.CsvFilePath,
-                            study.AnalysisResults, study.Metadata);
+                            $"{SanitizeFolderName(parentStudy.Title)}.xlsx");
+                        StudyExcelExporter.Export(excelPath, parentStudy, _studyFolderStore);
                         StatusMessage = $"Analysis #{analysisResult.AnalysisId} saved + Excel exported";
                     }
                     catch (Exception excelEx)
@@ -777,7 +886,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 }
                 else
                 {
-                    StatusMessage = $"Analysis saved: {study.Title} #{analysisResult.AnalysisId}";
+                    StatusMessage = $"Analysis saved: {measurement.MeasurementId} #{analysisResult.AnalysisId}";
                 }
             }
         }
@@ -785,13 +894,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             StatusMessage = $"Analysis failed: {ex.Message}";
         }
-    }
-
-    [RelayCommand]
-    private void AnalyzeSelectedStudy()
-    {
-        if (SelectedStudy != null)
-            AnalyzeStudy(SelectedStudy);
     }
 
     [RelayCommand]
@@ -894,21 +996,21 @@ public partial class MainViewModel : ObservableObject, IDisposable
             UpdateSelectedSeriesData(deviceId);
         }
 
-        // Per-study recording (multiple simultaneous)
-        if (_recordingStudies.Count > 0)
+        // Per-measurement recording (multiple simultaneous)
+        if (_recordingMeasurements.Count > 0)
         {
             var totalWritten = 0;
-            foreach (var activeStudy in _recordingStudies)
+            foreach (var activeMeasurement in _recordingMeasurements)
             {
-                if (activeStudy.TryWriteReading(deviceId, reading, LogTickThreshold))
+                if (activeMeasurement.TryWriteReading(deviceId, reading, LogTickThreshold))
                     totalWritten++;
             }
 
             if (totalWritten > 0)
             {
-                var totalSamples = _recordingStudies.Sum(s => s.RecordedSampleCount);
+                var totalSamples = _recordingMeasurements.Sum(m => m.RecordedSampleCount);
                 RecordedSampleCountDisplay = totalSamples;
-                StatusMessage = $"Recording {_recordingStudies.Count} studies - {totalSamples} total samples";
+                StatusMessage = $"Recording {_recordingMeasurements.Count} measurements - {totalSamples} total samples";
             }
 
             var recordingElapsed = DateTime.Now - _recordingStartTime;
@@ -1034,23 +1136,31 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             if (string.IsNullOrEmpty(search)
                 || study.DisplayName.Contains(search, StringComparison.OrdinalIgnoreCase)
-                || study.StudyId.Contains(search, StringComparison.OrdinalIgnoreCase))
+                || study.StudyId.Contains(search, StringComparison.OrdinalIgnoreCase)
+                || study.Measurements.Any(m =>
+                    m.Label.Contains(search, StringComparison.OrdinalIgnoreCase)))
             {
                 FilteredStudies.Add(study);
             }
         }
     }
 
-    private void PersistStudies()
+    private void PersistStudy(StudyItem study)
     {
         try
         {
-            _studyStore.SaveAll(Studies.Select(s => s.ToRecord()));
+            _studyFolderStore.Save(study.ToRecord(), study.StudyFolderPath);
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Failed to save studies: {ex.Message}";
+            StatusMessage = $"Failed to save study: {ex.Message}";
         }
+    }
+
+    private void PersistAllStudies()
+    {
+        foreach (var study in Studies)
+            PersistStudy(study);
     }
 
     private void RefreshFluxResultsDashboard()
@@ -1058,9 +1168,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
         AllFluxResults.Clear();
         foreach (var study in Studies)
         {
-            foreach (var result in study.AnalysisResults)
+            foreach (var measurement in study.Measurements)
             {
-                AllFluxResults.Add(result);
+                foreach (var result in measurement.AnalysisResults)
+                {
+                    AllFluxResults.Add(result);
+                }
             }
         }
     }
@@ -1081,7 +1194,31 @@ public partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        AnalyzeStudy(study);
+        // Find matching measurement and analyze it
+        var measurement = study.Measurements.FirstOrDefault(m =>
+            m.MeasurementId == result.MeasurementRecordId);
+        if (measurement != null)
+        {
+            SelectedStudy = study;
+            study.IsExpanded = true;
+            AnalyzeMeasurement(measurement);
+        }
+        else if (study.Measurements.Count > 0)
+        {
+            // Fallback: analyze first done measurement
+            var firstDone = study.Measurements.FirstOrDefault(m => m.State == MeasurementState.Done);
+            if (firstDone != null)
+            {
+                SelectedStudy = study;
+                study.IsExpanded = true;
+                AnalyzeMeasurement(firstDone);
+            }
+        }
+    }
+
+    private StudyItem? FindParentStudy(MeasurementItem measurement)
+    {
+        return Studies.FirstOrDefault(s => s.Measurements.Contains(measurement));
     }
 
     public void Dispose()
@@ -1099,13 +1236,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
             device.PropertyChanged -= OnDeviceItemPropertyChanged;
         }
 
-        foreach (var recording in _recordingStudies)
+        foreach (var measurement in _recordingMeasurements.ToList())
         {
-            recording.StopRecording();
+            measurement.StopRecording();
         }
-        _recordingStudies.Clear();
+        _recordingMeasurements.Clear();
 
-        PersistStudies();
+        PersistAllStudies();
 
         foreach (var study in Studies)
         {

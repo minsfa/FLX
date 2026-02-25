@@ -8,6 +8,12 @@ public class FluxAnalysisResult
     public string StudyTitle { get; set; } = "";
     public string MeasurementId { get; set; } = "";
     public string DeviceId { get; set; } = "";
+
+    /// <summary>
+    /// The MeasurementRecord.MeasurementId this analysis belongs to (e.g., "M001").
+    /// Null for legacy results.
+    /// </summary>
+    public string? MeasurementRecordId { get; set; }
     public string? ScreenshotPath { get; set; }
 
     // Input parameters snapshot
